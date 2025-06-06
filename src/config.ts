@@ -2,7 +2,7 @@ import { ModAction } from "@devvit/protos";
 import { TriggerContext, WikiPage } from "@devvit/public-api";
 import Ajv, { JSONSchemaType } from "ajv";
 import json2md from "json2md";
-import { compact } from "lodash";
+import { compact, uniq } from "lodash";
 import { parseAllDocuments } from "yaml";
 import { ScheduledJob } from "./constants.js";
 import { addSeconds, format } from "date-fns";
@@ -110,6 +110,18 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
                 return;
             }
         }
+    }
+
+    const uniqueNames = uniq(configs.map(config => config.name));
+    if (uniqueNames.length !== configs.length) {
+        await context.reddit.modMail.createModInboxConversation({
+            subredditId: context.subredditId,
+            subject: `Duplicate config names in wiki page ${CONFIG_PAGE}`,
+            bodyMarkdown: json2md([
+                { p: `/u/${event.moderator.name}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.` },
+            ]),
+        });
+        return;
     }
 
     await context.redis.set(lastRevisionKey, wikiPage.revisionId);
