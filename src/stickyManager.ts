@@ -1,6 +1,8 @@
 import { JobContext, JSONObject, Post, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
 import { Config, getConfig } from "./config.js";
-import { addDays, addHours, Day, format, nextDay, startOfDay } from "date-fns";
+import { addDays, addHours, addSeconds, Day, format, nextDay, startOfDay } from "date-fns";
+import { ScheduledJob } from "./constants.js";
+import { PostDelete } from "@devvit/protos";
 
 const STICKY_POST_STORE = "StickyPostStore";
 
@@ -8,15 +10,15 @@ async function getPostIdForConfig (config: Config, context: TriggerContext): Pro
     return context.redis.hGet(STICKY_POST_STORE, config.name);
 }
 
-export async function refreshStickyPosts (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
-    const config = await getConfig(context);
+export async function refreshStickyPosts (_: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+    let config = await getConfig(context);
     if (config.length === 0) {
         console.log("No sticky post configurations found.");
         return;
     }
 
     // Sort posts by sticky position, with undefined positions at the end
-    config.filter(item => item.enabled).sort((a, b) => {
+    config = config.filter(item => item.enabled).sort((a, b) => {
         if (a.stickyPosition === b.stickyPosition) {
             return 0;
         }
@@ -32,21 +34,32 @@ export async function refreshStickyPosts (event: ScheduledJobEvent<JSONObject | 
     for (const configEntry of config) {
         await refreshPost(configEntry, context);
     }
+
+    await scheduleNextRefresh(context);
+
+    const configsWithTrackedPosts = await context.redis.hKeys(STICKY_POST_STORE);
+    const keysWithoutExistingConfigs = configsWithTrackedPosts.filter(key => !config.some(item => item.name === key));
+    if (keysWithoutExistingConfigs.length > 0) {
+        console.log(`Removing stale sticky post configurations: ${keysWithoutExistingConfigs.join(", ")}`);
+        await context.redis.hDel(STICKY_POST_STORE, keysWithoutExistingConfigs);
+    }
 }
 
 export function getRefreshTime (postDate: Date, config: Config): Date {
     const hours = parseInt(config.postTime.split(":")[0]);
-    let nextPostDay: Date;
-
     if (config.frequency === "daily") {
-        nextPostDay = addDays(startOfDay(postDate), 1);
+        const nextPostTime = addHours(startOfDay(postDate), hours);
+        if (nextPostTime < addHours(postDate, 6)) {
+            return addDays(nextPostTime, 1);
+        } else {
+            return nextPostTime;
+        }
     } else {
-        const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency);
-        nextPostDay = nextDay(postDate, targetDay as Day);
-        return addHours(startOfDay(nextPostDay), hours);
+        const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency) as Day;
+        const startOfNextDay = startOfDay(nextDay(postDate, targetDay));
+        const nextPostTime = addHours(startOfNextDay, hours);
+        return nextPostTime;
     }
-
-    return addHours(startOfDay(nextPostDay), hours);
 }
 
 async function refreshPost (config: Config, context: TriggerContext) {
@@ -96,7 +109,9 @@ function getPostTitle (config: Config): string {
 
 async function createPost (existingPost: Post | undefined, config: Config, context: TriggerContext) {
     if (existingPost) {
-        await existingPost.unsticky();
+        if (existingPost.stickied) {
+            await existingPost.unsticky();
+        }
         if (config.endNote) {
             const newComment = await existingPost.addComment({ text: config.endNote });
             await newComment.distinguish(true);
@@ -115,12 +130,12 @@ async function createPost (existingPost: Post | undefined, config: Config, conte
 
     await newPost.distinguish();
     if (config.stickyPosition) {
-        await newPost.sticky(config.stickyPosition);
+        await newPost.sticky(); // config.stickyPosition;
     }
 
     await context.redis.hSet(STICKY_POST_STORE, { [config.name]: newPost.id });
     await storeCommentCap(newPost.id, config, context);
-    console.log(`Created new sticky post for config ${config.name} with ID ${newPost.id}.`);
+    console.log(`Created new post for config ${config.name} with ID ${newPost.id}.`);
 }
 
 export async function refreshPostFromPostId (postId: string, context: TriggerContext) {
@@ -135,5 +150,60 @@ export async function refreshPostFromPostId (postId: string, context: TriggerCon
     const configEntry = config.find(item => item.name === configName);
     if (configEntry) {
         await refreshPost(configEntry, context);
+        await scheduleNextRefresh(context);
     }
+}
+
+export async function scheduleNextRefresh (context: TriggerContext) {
+    // Clear down any scheduled jobs for refreshing sticky posts
+    const existingJobs = await context.scheduler.listJobs();
+    for (const job of existingJobs.filter(job => job.name === ScheduledJob.RefreshStickyPosts as string)) {
+        await context.scheduler.cancelJob(job.id);
+    }
+
+    const config = await getConfig(context);
+    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
+
+    let nextRefreshDue: Date | undefined;
+
+    for (const configEntry of config) {
+        const postId = trackedPosts[configEntry.name];
+        if (postId) {
+            const post = await context.reddit.getPostById(postId);
+            const refreshTime = getRefreshTime(post.createdAt, configEntry);
+            if (!nextRefreshDue || refreshTime < nextRefreshDue) {
+                nextRefreshDue = refreshTime;
+            }
+        }
+    }
+
+    if (!nextRefreshDue) {
+        console.log("No sticky posts found to refresh.");
+        return;
+    }
+
+    if (nextRefreshDue < new Date()) {
+        nextRefreshDue = new Date();
+    }
+
+    await context.scheduler.runJob({
+        name: ScheduledJob.RefreshStickyPosts,
+        runAt: addSeconds(nextRefreshDue, 5),
+    });
+
+    console.log(`Scheduled next sticky post refresh at ${nextRefreshDue.toISOString()}.`);
+}
+
+export async function handlePostDelete (event: PostDelete, context: TriggerContext) {
+    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
+    const trackedPost = Object.entries(trackedPosts)
+        .map(([name, postId]) => ({ name, id: postId }))
+        .find(entry => entry.id === event.postId);
+
+    if (!trackedPost) {
+        return;
+    }
+
+    await context.redis.hDel(STICKY_POST_STORE, [trackedPost.name]);
+    await context.redis.del(getCommentCapKey(event.postId));
 }

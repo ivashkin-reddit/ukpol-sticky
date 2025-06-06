@@ -3,9 +3,9 @@
 import { Devvit } from "@devvit/public-api";
 import { handleWikiUpdate } from "./config.js";
 import { ScheduledJob } from "./constants.js";
-import { refreshStickyPosts } from "./stickyManager.js";
+import { handlePostDelete, refreshStickyPosts } from "./stickyManager.js";
 import { handleCommentCreate } from "./handleCommentCreate.js";
-import { handleAppInstall } from "./installTasks.js";
+import { handleAppInstall, handleAppUpgrade } from "./installTasks.js";
 
 Devvit.addTrigger({
     event: "ModAction",
@@ -18,8 +18,18 @@ Devvit.addTrigger({
 });
 
 Devvit.addTrigger({
+    event: "PostDelete",
+    onEvent: handlePostDelete,
+});
+
+Devvit.addTrigger({
     event: "AppInstall",
     onEvent: handleAppInstall,
+});
+
+Devvit.addTrigger({
+    event: "AppUpgrade",
+    onEvent: handleAppUpgrade,
 });
 
 Devvit.addSchedulerJob({

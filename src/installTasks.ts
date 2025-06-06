@@ -1,5 +1,6 @@
-import { AppInstall } from "@devvit/protos";
+import { AppInstall, AppUpgrade } from "@devvit/protos";
 import { TriggerContext, WikiPagePermissionLevel } from "@devvit/public-api";
+import { scheduleNextRefresh } from "./stickyManager.js";
 
 export async function handleAppInstall (_: AppInstall, context: TriggerContext) {
     const lines = [
@@ -46,4 +47,8 @@ export async function handleAppInstall (_: AppInstall, context: TriggerContext) 
         permLevel: WikiPagePermissionLevel.MODS_ONLY,
         listed: true,
     });
+}
+
+export async function handleAppUpgrade (_: AppUpgrade, context: TriggerContext) {
+    await scheduleNextRefresh(context);
 }
