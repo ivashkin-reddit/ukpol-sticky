@@ -34,15 +34,16 @@ export async function refreshStickyPosts (event: ScheduledJobEvent<JSONObject | 
     }
 }
 
-export function getRefreshTime (post: Post, config: Config): Date {
+export function getRefreshTime (postDate: Date, config: Config): Date {
     const hours = parseInt(config.postTime.split(":")[0]);
     let nextPostDay: Date;
 
     if (config.frequency === "daily") {
-        nextPostDay = addDays(startOfDay(post.createdAt), 1);
+        nextPostDay = addDays(startOfDay(postDate), 1);
     } else {
         const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency);
-        nextPostDay = nextDay(post.createdAt, targetDay as Day);
+        nextPostDay = nextDay(postDate, targetDay as Day);
+        return addHours(startOfDay(nextPostDay), hours);
     }
 
     return addHours(startOfDay(nextPostDay), hours);
@@ -52,7 +53,7 @@ async function refreshPost (config: Config, context: TriggerContext) {
     const postId = await getPostIdForConfig(config, context);
     if (postId) {
         const post = await context.reddit.getPostById(postId);
-        const refreshTime = getRefreshTime(post, config);
+        const refreshTime = getRefreshTime(post.createdAt, config);
         if (refreshTime < new Date() || post.numberOfComments >= config.maxComments) {
             await createPost(post, config, context);
         } else if (post.body?.trim() !== config.body.trim()) {
