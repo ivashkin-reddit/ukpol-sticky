@@ -17,18 +17,15 @@ export async function refreshStickyPosts (_: ScheduledJobEvent<JSONObject | unde
         return;
     }
 
-    // Sort posts by sticky position, with undefined positions at the end
+    // Sort posts with sticky ones first.
     config = config.filter(item => item.enabled).sort((a, b) => {
-        if (a.stickyPosition === b.stickyPosition) {
-            return 0;
+        if (a.sticky && !b.sticky) {
+            return -1; // a comes first
         }
-        if (a.stickyPosition === undefined) {
-            return 1;
-        };
-        if (b.stickyPosition === undefined) {
-            return -1;
+        if (!a.sticky && b.sticky) {
+            return 1; // b comes first
         }
-        return (a.stickyPosition ?? 0) - (b.stickyPosition ?? 0);
+        return 0; // maintain original order for others
     });
 
     for (const configEntry of config) {
@@ -129,7 +126,7 @@ async function createPost (existingPost: Post | undefined, config: Config, conte
     });
 
     await newPost.distinguish();
-    if (config.stickyPosition) {
+    if (config.sticky) {
         await newPost.sticky(); // config.stickyPosition;
     }
 

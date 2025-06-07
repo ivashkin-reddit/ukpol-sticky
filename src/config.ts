@@ -16,7 +16,7 @@ export interface Config {
     title: string;
     frequency: "daily" | "mondays" | "tuesdays" | "wednesdays" | "thursdays" | "fridays" | "saturdays" | "sundays";
     postTime: string;
-    stickyPosition?: 1 | 2;
+    sticky?: boolean;
     maxComments: number;
     body: string;
     endNote?: string;
@@ -33,7 +33,7 @@ const configSchema: JSONSchemaType<Config[]> = {
             title: { type: "string" },
             frequency: { type: "string", enum: ["daily", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays"] },
             postTime: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
-            stickyPosition: { type: "integer", enum: [1, 2], nullable: true },
+            sticky: { type: "boolean", nullable: true },
             maxComments: { type: "number" },
             body: { type: "string" },
             endNote: { type: "string", nullable: true },
@@ -78,6 +78,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     const valid = ajv.validate(configSchema, configs);
 
     if (!valid) {
+        console.error(`Invalid config in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, ajv.errorsText());
         await context.reddit.modMail.createModInboxConversation({
             subredditId: context.subredditId,
             subject: `Invalid config in wiki page ${CONFIG_PAGE}`,
