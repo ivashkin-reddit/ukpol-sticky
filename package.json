@@ -9,8 +9,8 @@
     "test:unit": "vitest --run"
   },
   "dependencies": {
-    "@devvit/protos": "0.11.17",
-    "@devvit/public-api": "0.11.17",
+    "@devvit/protos": "^0.11.19",
+    "@devvit/public-api": "^0.11.19",
     "@types/json2md": "^1.5.4",
     "@types/lodash": "^4.17.17",
     "ajv": "^8.17.1",
