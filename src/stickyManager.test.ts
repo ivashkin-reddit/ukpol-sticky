@@ -1,6 +1,14 @@
 import { getRefreshTime } from "./stickyManager.js";
 import { Config } from "./config.js";
 
+test("getRefreshTime returns undefined when schedule is omitted", () => {
+    const config = {
+        maxComments: 100,
+    } as unknown as Config;
+
+    expect(getRefreshTime(new Date("2023-02-02T02:00:00Z"), config)).toBeUndefined();
+});
+
 test("getRefreshTime with daily frequency", () => {
     const config = {
         frequency: "daily",
@@ -9,7 +17,18 @@ test("getRefreshTime with daily frequency", () => {
 
     const expected = new Date("2023-02-02T14:00:00Z");
     const result = getRefreshTime(new Date("2023-02-02T02:00:00Z"), config);
-    expect(result.toISOString()).toBe(expected.toISOString());
+    expect(result?.toISOString()).toBe(expected.toISOString());
+});
+
+test("getRefreshTime with daily frequency preserves minutes", () => {
+    const config = {
+        frequency: "daily",
+        postTime: "14:30",
+    } as unknown as Config;
+
+    const expected = new Date("2023-02-02T14:30:00Z");
+    const result = getRefreshTime(new Date("2023-02-02T02:00:00Z"), config);
+    expect(result?.toISOString()).toBe(expected.toISOString());
 });
 
 test("getRefreshTime with daily frequency and recent refresh", () => {
@@ -20,7 +39,7 @@ test("getRefreshTime with daily frequency and recent refresh", () => {
 
     const expected = new Date("2023-02-02T14:00:00Z");
     const result = getRefreshTime(new Date("2023-02-01T13:00:00Z"), config);
-    expect(result.toISOString()).toBe(expected.toISOString());
+    expect(result?.toISOString()).toBe(expected.toISOString());
 });
 
 test("getRefreshTime with weekly frequency", () => {
@@ -31,7 +50,18 @@ test("getRefreshTime with weekly frequency", () => {
 
     const expected = new Date("2025-02-12T01:00:00Z");
     const result = getRefreshTime(new Date("2025-02-06T12:00:00Z"), config);
-    expect(result.toISOString()).toBe(expected.toISOString());
+    expect(result?.toISOString()).toBe(expected.toISOString());
+});
+
+test("getRefreshTime with weekly frequency preserves minutes", () => {
+    const config = {
+        frequency: "wednesdays",
+        postTime: "01:30",
+    } as unknown as Config;
+
+    const expected = new Date("2025-02-12T01:30:00Z");
+    const result = getRefreshTime(new Date("2025-02-06T12:00:00Z"), config);
+    expect(result?.toISOString()).toBe(expected.toISOString());
 });
 
 test("getRefreshTime with weekly frequency and recent refresh", () => {
@@ -42,5 +72,5 @@ test("getRefreshTime with weekly frequency and recent refresh", () => {
 
     const expected = new Date("2025-02-19T01:00:00Z");
     const result = getRefreshTime(new Date("2025-02-12T00:30:00Z"), config);
-    expect(result.toISOString()).toBe(expected.toISOString());
+    expect(result?.toISOString()).toBe(expected.toISOString());
 });

@@ -37,9 +37,4 @@ Devvit.addSchedulerJob({
     onRun: refreshStickyPosts,
 });
 
-Devvit.configure({
-    redditAPI: true,
-    redis: true,
-});
-
 export default Devvit;

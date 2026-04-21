@@ -8,12 +8,12 @@ export async function handleCommentCreate (event: CommentCreate, context: Trigge
         return;
     }
 
-    if (event.author?.name === context.appName) {
+    if (event.author?.name === context.appSlug) {
         return; // Ignore comments made by the app itself
     }
 
     const commentCap = await getCommentCap(event.post.id, context);
-    if (!commentCap) {
+    if (commentCap == null) {
         return;
     }
 

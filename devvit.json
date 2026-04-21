@@ -1,0 +1,21 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "ukpol-megabot",
+  "blocks": {
+    "entry": "src/main.ts",
+    "triggers": [
+      "onModAction",
+      "onCommentCreate",
+      "onPostDelete",
+      "onAppInstall",
+      "onAppUpgrade"
+    ]
+  },
+  "permissions": {
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "scope": "moderator"
+    }
+  }
+}

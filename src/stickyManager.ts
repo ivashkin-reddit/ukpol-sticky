@@ -1,19 +1,47 @@
 import { JobContext, JSONObject, Post, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
 import { Config, getConfig } from "./config.js";
-import { addDays, addHours, addSeconds, Day, format, nextDay, startOfDay } from "date-fns";
+import { addDays, addHours, addMinutes, addSeconds, Day, format, nextDay, startOfDay } from "date-fns";
 import { ScheduledJob } from "./constants.js";
 import { PostDelete } from "@devvit/protos";
 
 const STICKY_POST_STORE = "StickyPostStore";
 
+type RedisContext = Pick<TriggerContext, "redis">;
+
 async function getPostIdForConfig (config: Config, context: TriggerContext): Promise<string | undefined> {
     return context.redis.hGet(STICKY_POST_STORE, config.name);
+}
+
+export function hasScheduledRefresh (config: Config): config is Config & {
+    frequency: NonNullable<Config["frequency"]>;
+    postTime: string;
+} {
+    return config.frequency != null && config.postTime != null;
+}
+
+async function deleteTrackedPosts (configNames: string[], context: RedisContext) {
+    if (configNames.length === 0) {
+        return;
+    }
+
+    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
+    const configNameSet = new Set(configNames);
+    const postIds = Object.entries(trackedPosts)
+        .filter(([configName]) => configNameSet.has(configName))
+        .map(([, postId]) => postId);
+
+    await context.redis.hDel(STICKY_POST_STORE, configNames);
+    for (const postId of postIds) {
+        await context.redis.del(getCommentCapKey(postId));
+    }
 }
 
 export async function refreshStickyPosts (_: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     let config = await getConfig(context);
     if (config.length === 0) {
         console.log("No sticky post configurations found.");
+        const trackedConfigNames = Object.keys(await context.redis.hGetAll(STICKY_POST_STORE));
+        await deleteTrackedPosts(trackedConfigNames, context);
         return;
     }
 
@@ -38,14 +66,21 @@ export async function refreshStickyPosts (_: ScheduledJobEvent<JSONObject | unde
     const keysWithoutExistingConfigs = configsWithTrackedPosts.filter(key => !config.some(item => item.name === key));
     if (keysWithoutExistingConfigs.length > 0) {
         console.log(`Removing stale sticky post configurations: ${keysWithoutExistingConfigs.join(", ")}`);
-        await context.redis.hDel(STICKY_POST_STORE, keysWithoutExistingConfigs);
+        await deleteTrackedPosts(keysWithoutExistingConfigs, context);
     }
 }
 
-export function getRefreshTime (postDate: Date, config: Config): Date {
-    const hours = parseInt(config.postTime.split(":")[0]);
+export function getRefreshTime (postDate: Date, config: Config): Date | undefined {
+    if (!hasScheduledRefresh(config)) {
+        return undefined;
+    }
+
+    const [hoursString, minutesString] = config.postTime.split(":");
+    const hours = Number.parseInt(hoursString, 10);
+    const minutes = Number.parseInt(minutesString, 10);
+
     if (config.frequency === "daily") {
-        const nextPostTime = addHours(startOfDay(postDate), hours);
+        const nextPostTime = addMinutes(addHours(startOfDay(postDate), hours), minutes);
         if (nextPostTime < addHours(postDate, 6)) {
             return addDays(nextPostTime, 1);
         } else {
@@ -54,7 +89,7 @@ export function getRefreshTime (postDate: Date, config: Config): Date {
     } else {
         const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency) as Day;
         const startOfNextDay = startOfDay(nextDay(postDate, targetDay));
-        const nextPostTime = addHours(startOfNextDay, hours);
+        const nextPostTime = addMinutes(addHours(startOfNextDay, hours), minutes);
         return nextPostTime;
     }
 }
@@ -64,14 +99,18 @@ async function refreshPost (config: Config, context: TriggerContext) {
     if (postId) {
         const post = await context.reddit.getPostById(postId);
         const refreshTime = getRefreshTime(post.createdAt, config);
-        if (refreshTime < new Date() || post.numberOfComments >= config.maxComments) {
+        if ((refreshTime != null && refreshTime < new Date()) || post.numberOfComments >= config.maxComments) {
             await createPost(post, config, context);
-        } else if (post.body?.trim() !== config.body.trim()) {
+            return;
+        }
+
+        if (post.body?.trim() !== config.body.trim()) {
             console.log(`Updating post for config ${config.name} as body has changed.`);
             await post.edit({
                 text: config.body,
             });
         }
+
         await storeCommentCap(post.id, config, context);
     } else {
         await createPost(undefined, config, context);
@@ -164,18 +203,22 @@ export async function scheduleNextRefresh (context: TriggerContext) {
     let nextRefreshDue: Date | undefined;
 
     for (const configEntry of config) {
+        if (!hasScheduledRefresh(configEntry)) {
+            continue;
+        }
+
         const postId = trackedPosts[configEntry.name];
         if (postId) {
             const post = await context.reddit.getPostById(postId);
             const refreshTime = getRefreshTime(post.createdAt, configEntry);
-            if (!nextRefreshDue || refreshTime < nextRefreshDue) {
+            if (refreshTime && (!nextRefreshDue || refreshTime < nextRefreshDue)) {
                 nextRefreshDue = refreshTime;
             }
         }
     }
 
     if (!nextRefreshDue) {
-        console.log("No sticky posts found to refresh.");
+        console.log("No scheduled sticky post refreshes found.");
         return;
     }
 

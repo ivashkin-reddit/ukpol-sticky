@@ -10,12 +10,16 @@ import { addSeconds, format } from "date-fns";
 const CONFIG_PAGE = "stickymgr/config";
 const CONFIG_STORAGE = "Configuration";
 
+export const SCHEDULE_FREQUENCIES = ["daily", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays"] as const;
+
+export type ScheduleFrequency = typeof SCHEDULE_FREQUENCIES[number];
+
 export interface Config {
     name: string;
     enabled: boolean;
     title: string;
-    frequency: "daily" | "mondays" | "tuesdays" | "wednesdays" | "thursdays" | "fridays" | "saturdays" | "sundays";
-    postTime: string;
+    frequency?: ScheduleFrequency;
+    postTime?: string;
     sticky?: boolean;
     maxComments: number;
     body: string;
@@ -31,15 +35,15 @@ const configSchema: JSONSchemaType<Config[]> = {
             name: { type: "string" },
             enabled: { type: "boolean" },
             title: { type: "string" },
-            frequency: { type: "string", enum: ["daily", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays"] },
-            postTime: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
+            frequency: { type: "string", enum: [...SCHEDULE_FREQUENCIES], nullable: true },
+            postTime: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", nullable: true },
             sticky: { type: "boolean", nullable: true },
-            maxComments: { type: "number" },
+            maxComments: { type: "integer", minimum: 1 },
             body: { type: "string" },
             endNote: { type: "string", nullable: true },
             lockOnRefresh: { type: "boolean", nullable: true },
         },
-        required: ["name", "enabled", "title", "frequency", "postTime", "maxComments", "body"],
+        required: ["name", "enabled", "title", "maxComments", "body"],
         additionalProperties: false,
     },
 };
@@ -72,7 +76,27 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     }
 
     const documents = parseAllDocuments(wikiPage.content);
-    const configs: Config[] = compact(documents.map(doc => doc.toJSON() as Config));
+    const parseErrors = documents.flatMap((document, index) => document.errors.map(error => `Document ${index + 1}: ${error.message}`));
+
+    if (parseErrors.length > 0) {
+        await context.reddit.modMail.createModInboxConversation({
+            subredditId: context.subredditId,
+            subject: `Invalid YAML in wiki page ${CONFIG_PAGE}`,
+            bodyMarkdown: json2md([
+                { p: `/u/${event.moderator.name}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
+                { p: "Errors:" },
+                { blockquote: parseErrors.join("\n") },
+                { p: "The existing config will be used until the issue is resolved." },
+            ]),
+        });
+        console.error(`Invalid YAML in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, parseErrors.join(" | "));
+        return;
+    }
+
+    const configs: Config[] = compact(documents.map((document) => {
+        const value = document.toJSON() as unknown;
+        return value == null ? undefined : value as Config;
+    }));
 
     const ajv = new Ajv.default();
     const valid = ajv.validate(configSchema, configs);
@@ -93,6 +117,20 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     }
 
     for (const config of configs) {
+        const hasFrequency = config.frequency != null;
+        const hasPostTime = config.postTime != null;
+
+        if (hasFrequency !== hasPostTime) {
+            await context.reddit.modMail.createModInboxConversation({
+                subredditId: context.subredditId,
+                subject: `Incomplete schedule in config ${config.name}`,
+                bodyMarkdown: json2md([
+                    { p: `/u/${event.moderator.name}, config ${config.name} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.` },
+                ]),
+            });
+            return;
+        }
+
         const dateRegex = /{{date (.+)}}/;
         const matches = dateRegex.exec(config.title);
         if (matches) {
@@ -141,5 +179,16 @@ export async function getConfig (context: TriggerContext): Promise<Config[]> {
         return [];
     }
 
-    return JSON.parse(configData) as Config[];
+    try {
+        const parsed = JSON.parse(configData) as unknown;
+        if (!Array.isArray(parsed)) {
+            console.error("Stored configuration is not an array. Returning empty config.");
+            return [];
+        }
+
+        return parsed as Config[];
+    } catch (error) {
+        console.error("Failed to parse stored configuration. Returning empty config.", error);
+        return [];
+    }
 }

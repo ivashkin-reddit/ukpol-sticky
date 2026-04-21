@@ -1,4 +1,4 @@
-An app to allow timed daily or weekly megathreads for /r/ukpolitics.
+An app to allow timed or comment-cap-only megathreads for /r/ukpolitics.
 
 This app is controlled through a wiki page, `stickymgr/config` on the subreddit that it is installed in.
 
@@ -10,6 +10,7 @@ Example configuration:
 name: weekly
 enabled: true
 title: Daily /r/ukpolitics megathread for {{date yyyy-MM-dd}}
+frequency: daily
 postTime: 02:00
 sticky: true
 maxComments: 1000
@@ -22,6 +23,8 @@ endNote: |
 lockOnRefresh: true
 ```
 
+Omit both `frequency` and `postTime` to keep a megathread open until `maxComments` is reached.
+
 Multiple configurations can be specified, separated by `---`.
 
-Megathreads are replaced once the next post time is reached or the comment limit is reached, and the endNote (if specified) is added as a sticky comment on the post.
+Megathreads with `frequency` and `postTime` are replaced once the next post time is reached or the comment limit is reached. If both are omitted, the megathread is replaced only when the comment limit is reached. In both cases, the endNote (if specified) is added as a sticky comment on the post.
