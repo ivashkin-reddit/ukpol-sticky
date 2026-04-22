@@ -166,6 +166,11 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     await context.redis.set(lastRevisionKey, wikiPage.revisionId);
     await context.redis.set(CONFIG_STORAGE, JSON.stringify(configs));
 
+    const existingJobs = await context.scheduler.listJobs();
+    for (const job of existingJobs.filter(job => job.name === ScheduledJob.RefreshStickyPosts as string)) {
+        await context.scheduler.cancelJob(job.id);
+    }
+
     await context.scheduler.runJob({
         name: ScheduledJob.RefreshStickyPosts,
         runAt: addSeconds(new Date(), 1),

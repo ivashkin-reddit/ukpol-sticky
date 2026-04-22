@@ -1,12 +1,13 @@
 import { JobContext, JSONObject, Post, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
 import { Config, getConfig } from "./config.js";
-import { addDays, addHours, addMinutes, addSeconds, Day, format, nextDay, startOfDay } from "date-fns";
+import { addDays, addSeconds, format } from "date-fns";
 import { ScheduledJob } from "./constants.js";
 import { PostDelete } from "@devvit/protos";
 
 const STICKY_POST_STORE = "StickyPostStore";
 
 type RedisContext = Pick<TriggerContext, "redis">;
+export type PostCreationContext = Pick<TriggerContext, "reddit" | "redis" | "subredditName">;
 
 async function getPostIdForConfig (config: Config, context: TriggerContext): Promise<string | undefined> {
     return context.redis.hGet(STICKY_POST_STORE, config.name);
@@ -79,18 +80,31 @@ export function getRefreshTime (postDate: Date, config: Config): Date | undefine
     const hours = Number.parseInt(hoursString, 10);
     const minutes = Number.parseInt(minutesString, 10);
 
+    const createUtcDateAtTime = (dayOffset: number) => new Date(Date.UTC(
+        postDate.getUTCFullYear(),
+        postDate.getUTCMonth(),
+        postDate.getUTCDate() + dayOffset,
+        hours,
+        minutes,
+    ));
+
     if (config.frequency === "daily") {
-        const nextPostTime = addMinutes(addHours(startOfDay(postDate), hours), minutes);
-        if (nextPostTime < addHours(postDate, 6)) {
-            return addDays(nextPostTime, 1);
-        } else {
-            return nextPostTime;
+        const nextPostTime = createUtcDateAtTime(0);
+        if (nextPostTime.getTime() < postDate.getTime() + 6 * 60 * 60 * 1000) {
+            return createUtcDateAtTime(1);
         }
-    } else {
-        const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency) as Day;
-        const startOfNextDay = startOfDay(nextDay(postDate, targetDay));
-        const nextPostTime = addMinutes(addHours(startOfNextDay, hours), minutes);
+
         return nextPostTime;
+    } else {
+        const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency);
+        const currentDay = postDate.getUTCDay();
+        let dayOffset = (targetDay - currentDay + 7) % 7;
+
+        if (dayOffset === 0) {
+            dayOffset = 7;
+        }
+
+        return createUtcDateAtTime(dayOffset);
     }
 }
 
@@ -121,7 +135,7 @@ function getCommentCapKey (postId: string) {
     return `CommentCap:${postId}`;
 }
 
-async function storeCommentCap (postId: string, config: Config, context: TriggerContext) {
+async function storeCommentCap (postId: string, config: Config, context: RedisContext) {
     await context.redis.set(getCommentCapKey(postId), JSON.stringify(config.maxComments), { expiration: addDays(new Date(), 28) });
 }
 
@@ -143,7 +157,7 @@ function getPostTitle (config: Config): string {
     return title.replace(matches[0], format(new Date(), matches[1]));
 }
 
-async function createPost (existingPost: Post | undefined, config: Config, context: TriggerContext) {
+export async function createPost (existingPost: Post | undefined, config: Config, context: PostCreationContext) {
     if (existingPost) {
         if (existingPost.stickied) {
             await existingPost.unsticky();
@@ -203,6 +217,10 @@ export async function scheduleNextRefresh (context: TriggerContext) {
     let nextRefreshDue: Date | undefined;
 
     for (const configEntry of config) {
+        if (!configEntry.enabled) {
+            continue;
+        }
+
         if (!hasScheduledRefresh(configEntry)) {
             continue;
         }
