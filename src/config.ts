@@ -1,31 +1,38 @@
-import { ModAction } from "@devvit/protos";
-import { TriggerContext, WikiPage } from "@devvit/public-api";
+import type { TriggerContext } from "@devvit/public-api";
 import { asT5ID } from "@devvit/public-api/types/tid.js";
-import Ajv, { JSONSchemaType } from "ajv";
-import json2md from "json2md";
-import { compact, uniq } from "lodash";
-import { parseAllDocuments } from "yaml";
-import { ScheduledJob } from "./constants.js";
-import { addSeconds, format } from "date-fns";
+import { Ajv } from "ajv";
+import type { JSONSchemaType } from "ajv";
+import type { RedisPort } from "./ports.js";
 
-const CONFIG_PAGE = "stickymgr/config";
+export const CONFIG_PAGE = "stickymgr/config";
 const CONFIG_STORAGE = "Configuration";
+// Set while moderators have been alerted that the stored config is unreadable; storing a fresh config clears it.
+const UNREADABLE_CONFIG_ALERT_KEY = "UnreadableConfigAlertSent";
 
-export const SCHEDULE_FREQUENCIES = ["daily", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays"] as const;
-
+// Sundays first, so each weekly frequency's index is its getUTCDay() value.
+export const WEEKLY_FREQUENCIES = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"] as const;
+export const SCHEDULE_FREQUENCIES = ["daily", ...WEEKLY_FREQUENCIES] as const;
 export type ScheduleFrequency = typeof SCHEDULE_FREQUENCIES[number];
 
+// HH:mm, 24-hour, interpreted as UTC.
+const POST_TIME = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/u;
+
+/**
+ * One managed post: a YAML document on the config wiki page.
+ * A key left empty in YAML parses as null, and ajv's JSONSchemaType admits null for optional properties, so those
+ * keys are typed `| null` — except `frequency`, whose enum does not include null.
+ */
 export interface Config {
-    name: string;
-    enabled: boolean;
-    title: string;
-    frequency?: ScheduleFrequency;
-    postTime?: string;
-    sticky?: boolean;
-    maxComments: number;
-    body: string;
-    endNote?: string;
-    lockOnRefresh?: boolean;
+    readonly name: string;
+    readonly enabled: boolean;
+    readonly title: string;
+    readonly frequency?: ScheduleFrequency;
+    readonly postTime?: string | null;
+    readonly sticky?: boolean | null;
+    readonly maxComments: number;
+    readonly body: string;
+    readonly endNote?: string | null;
+    readonly lockOnRefresh?: boolean | null;
 }
 
 const configSchema: JSONSchemaType<Config[]> = {
@@ -37,7 +44,7 @@ const configSchema: JSONSchemaType<Config[]> = {
             enabled: { type: "boolean" },
             title: { type: "string" },
             frequency: { type: "string", enum: [...SCHEDULE_FREQUENCIES], nullable: true },
-            postTime: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", nullable: true },
+            postTime: { type: "string", pattern: POST_TIME.source, nullable: true },
             sticky: { type: "boolean", nullable: true },
             maxComments: { type: "integer", minimum: 1 },
             body: { type: "string" },
@@ -49,153 +56,120 @@ const configSchema: JSONSchemaType<Config[]> = {
     },
 };
 
-export async function handleWikiUpdate (event: ModAction, context: TriggerContext) {
-    if (event.action !== "wikirevise") {
-        return;
+const ajv = new Ajv();
+const validateConfigs = ajv.compile(configSchema);
+
+export type ConfigValidation = Readonly<{ kind: "invalid"; errors: string }> | Readonly<{ kind: "valid"; configs: readonly Config[] }>;
+
+export function validateConfigList (values: unknown): ConfigValidation {
+    if (!validateConfigs(values)) {
+        return { kind: "invalid", errors: ajv.errorsText(validateConfigs.errors) };
     }
 
-    if (!event.moderator?.name) {
-        console.error("Moderator name is missing in the event.");
-        return;
+    return { kind: "valid", configs: values };
+}
+
+export interface PostTime {
+    readonly hours: number;
+    readonly minutes: number;
+}
+
+/** Throws if `postTime` is not HH:mm; configs that passed validation always are. */
+export function parsePostTime (postTime: string): PostTime {
+    const groups = POST_TIME.exec(postTime)?.groups;
+    const hours = groups?.["hours"];
+    const minutes = groups?.["minutes"];
+    if (hours === undefined || minutes === undefined) {
+        throw new RangeError(`postTime "${postTime}" is not in HH:mm format.`);
     }
 
-    const lastRevisionKey = "LastRevision";
-    const lastRevision = await context.redis.get(lastRevisionKey);
+    return { hours: Number(hours), minutes: Number(minutes) };
+}
 
-    const subredditName = context.subredditName ?? await context.reddit.getCurrentSubredditName();
-    const subredditId = asT5ID(context.subredditId);
-    let wikiPage: WikiPage;
-    try {
-        wikiPage = await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
-    } catch (error) {
-        console.error(`Failed to fetch wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, error);
-        return;
-    }
+/** The stored config exists but cannot be read; re-saving the wiki page stores a fresh one. */
+export class UnreadableConfigError extends Error {
+    public override readonly name = "UnreadableConfigError";
+}
 
-    if (wikiPage.revisionId === lastRevision) {
-        console.log(`No changes detected in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}.`);
-        return;
-    }
+export type ConfigReadContext = Readonly<{
+    redis: RedisPort<"del" | "get" | "set">;
+    reddit: Readonly<{ modMail: Readonly<Pick<TriggerContext["reddit"]["modMail"], "createModInboxConversation">> }>;
+    subredditId: string;
+}>;
 
-    const documents = parseAllDocuments(wikiPage.content);
-    const parseErrors = documents.flatMap((document, index) => document.errors.map(error => `Document ${index + 1}: ${error.message}`));
-
-    if (parseErrors.length > 0) {
-        await context.reddit.modMail.createModInboxConversation({
-            subredditId,
-            subject: `Invalid YAML in wiki page ${CONFIG_PAGE}`,
-            bodyMarkdown: json2md([
-                { p: `/u/${event.moderator.name}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
-                { p: "Errors:" },
-                { blockquote: parseErrors.join("\n") },
-                { p: "The existing config will be used until the issue is resolved." },
-            ]),
-        });
-        console.error(`Invalid YAML in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, parseErrors.join(" | "));
-        return;
-    }
-
-    const configs: Config[] = compact(documents.map((document) => {
-        const value = document.toJSON() as unknown;
-        return value == null ? undefined : value as Config;
-    }));
-
-    const ajv = new Ajv.default();
-    const valid = ajv.validate(configSchema, configs);
-
-    if (!valid) {
-        console.error(`Invalid config in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, ajv.errorsText());
-        await context.reddit.modMail.createModInboxConversation({
-            subredditId,
-            subject: `Invalid config in wiki page ${CONFIG_PAGE}`,
-            bodyMarkdown: json2md([
-                { p: `/u/${event.moderator.name}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
-                { p: "Errors:" },
-                { blockquote: ajv.errorsText() },
-                { p: "The existing config will be used until the issue is resolved." },
-            ]),
-        });
-        return;
-    }
-
-    for (const config of configs) {
-        const hasFrequency = config.frequency != null;
-        const hasPostTime = config.postTime != null;
-
-        if (hasFrequency !== hasPostTime) {
-            await context.reddit.modMail.createModInboxConversation({
-                subredditId,
-                subject: `Incomplete schedule in config ${config.name}`,
-                bodyMarkdown: json2md([
-                    { p: `/u/${event.moderator.name}, config ${config.name} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.` },
-                ]),
-            });
-            return;
-        }
-
-        const dateRegex = /{{date (.+)}}/;
-        const matches = dateRegex.exec(config.title);
-        if (matches) {
-            try {
-                format(new Date(), matches[1]);
-            } catch (error) {
-                await context.reddit.modMail.createModInboxConversation({
-                    subredditId,
-                    subject: `Invalid date format in config ${config.name}`,
-                    bodyMarkdown: json2md([
-                        { p: `/u/${event.moderator.name}, the date format in config ${config.name} is invalid. Please fix it.` },
-                        { p: `The date format \`${matches[1]}\` is not a valid format string.` },
-                    ]),
-                });
-                console.error(`Invalid date format in config ${config.name}:`, error);
-                return;
-            }
-        }
-    }
-
-    const uniqueNames = uniq(configs.map(config => config.name));
-    if (uniqueNames.length !== configs.length) {
-        await context.reddit.modMail.createModInboxConversation({
-            subredditId,
-            subject: `Duplicate config names in wiki page ${CONFIG_PAGE}`,
-            bodyMarkdown: json2md([
-                { p: `/u/${event.moderator.name}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.` },
-            ]),
-        });
-        return;
-    }
-
-    await context.redis.set(lastRevisionKey, wikiPage.revisionId);
+export async function storeConfig (context: Readonly<{ redis: RedisPort<"del" | "set"> }>, configs: readonly Config[]): Promise<void> {
     await context.redis.set(CONFIG_STORAGE, JSON.stringify(configs));
+    // The stored config is readable again, so a later breakage alerts moderators again.
+    await context.redis.del(UNREADABLE_CONFIG_ALERT_KEY);
+}
 
-    const existingJobs = await context.scheduler.listJobs();
-    for (const job of existingJobs.filter(job => job.name === ScheduledJob.RefreshStickyPosts as string)) {
-        await context.scheduler.cancelJob(job.id);
+function parseStoredJson (stored: string): unknown {
+    try {
+        const parsed: unknown = JSON.parse(stored);
+        return parsed;
+    } catch (error: unknown) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
+        }
+
+        throw new UnreadableConfigError(`Stored configuration (Redis key "${CONFIG_STORAGE}") is not JSON: ${error.message}`, { cause: error });
+    }
+}
+
+function parseStoredConfig (stored: string): readonly Config[] {
+    const validation = validateConfigList(parseStoredJson(stored));
+    if (validation.kind === "invalid") {
+        throw new UnreadableConfigError(`Stored configuration (Redis key "${CONFIG_STORAGE}") is invalid: ${validation.errors}`);
     }
 
-    await context.scheduler.runJob({
-        name: ScheduledJob.RefreshStickyPosts,
-        runAt: addSeconds(new Date(), 1),
-    });
-};
+    return validation.configs;
+}
 
-export async function getConfig (context: TriggerContext): Promise<Config[]> {
-    const configData = await context.redis.get(CONFIG_STORAGE);
-    if (!configData) {
-        console.warn(`No configuration found in storage. Returning empty config.`);
+/** Sends moderators one modmail per broken stored config; the NX write lets concurrent readers agree on one sender. */
+async function alertModeratorsOnce (context: ConfigReadContext, reason: string): Promise<void> {
+    const claim = await context.redis.set(UNREADABLE_CONFIG_ALERT_KEY, new Date().toISOString(), { nx: true });
+    // Redis answers a declined NX write with nil, which Devvit returns as "".
+    if (claim !== "OK") {
+        return;
+    }
+
+    try {
+        await context.reddit.modMail.createModInboxConversation({
+            subredditId: asT5ID(context.subredditId),
+            subject: "Sticky Manager cannot read its stored config",
+            bodyMarkdown: [
+                "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
+                `Re-save the wiki page ${CONFIG_PAGE} to store a fresh copy.`,
+                `Details: ${reason}`,
+            ].join("\n\n"),
+        });
+    } catch (sendError: unknown) {
+        // Release the claim, so the next read retries the alert.
+        await context.redis.del(UNREADABLE_CONFIG_ALERT_KEY);
+        throw new Error(`Could not alert moderators that the stored config cannot be read (${reason})`, { cause: sendError });
+    }
+}
+
+/**
+ * The stored configs, or an empty list when none has been stored yet.
+ * A stored config that cannot be read throws rather than reading as empty: callers treat an empty list as "every
+ * config was removed" and forget all tracked posts. Moderators get one modmail asking them to re-save the wiki page,
+ * which stores a fresh, validated config.
+ */
+export async function getConfig (context: ConfigReadContext): Promise<readonly Config[]> {
+    const stored = await context.redis.get(CONFIG_STORAGE);
+    if (stored === undefined) {
+        console.warn("No configuration found in storage. Returning empty config.");
         return [];
     }
 
     try {
-        const parsed = JSON.parse(configData) as unknown;
-        if (!Array.isArray(parsed)) {
-            console.error("Stored configuration is not an array. Returning empty config.");
-            return [];
+        return parseStoredConfig(stored);
+    } catch (error: unknown) {
+        if (error instanceof UnreadableConfigError) {
+            await alertModeratorsOnce(context, error.message);
         }
 
-        return parsed as Config[];
-    } catch (error) {
-        console.error("Failed to parse stored configuration. Returning empty config.", error);
-        return [];
+        throw error;
     }
 }
