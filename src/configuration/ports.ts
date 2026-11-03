@@ -8,13 +8,18 @@ import type { ThreadConfig } from "./domain/threadConfig.js";
 export interface ConfigPageRevision {
     readonly content: string;
     readonly revisionId: string;
+    /** The moderator who saved this revision, when Reddit says. */
+    readonly authorName?: string | undefined;
 }
 
 /** The config page: the subreddit wiki page that holds the thread configs. */
 export interface ConfigPage {
     /** The page's current revision, or undefined when it cannot be fetched (the adapter logs why). */
     readonly read: () => Promise<ConfigPageRevision | undefined>;
-    /** Writes `content` to the page unless it already has content, and makes it editable by moderators only. */
+    /**
+     * Writes `content` to the page unless it already has content, and makes it editable by moderators only. Rejects,
+     * writing nothing, when it cannot tell whether the page has content.
+     */
     readonly install: (content: string) => Promise<void>;
 }
 

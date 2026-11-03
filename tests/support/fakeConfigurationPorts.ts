@@ -40,14 +40,33 @@ export type FakeConfigurationOptions = Readonly<{
     storedConfigs?: readonly ThreadConfig[];
 }>;
 
+/** A config store whose revision records read back what was last written, as Redis would. */
 function createFakeStore(options: FakeConfigurationOptions): FakeConfigStore {
+    const revisions: { accepted: string | undefined; rejected: string | undefined } = {
+        accepted: options.acceptedRevision,
+        rejected: undefined,
+    };
     return {
         readConfigs: vi.fn<ConfigStore["readConfigs"]>().mockResolvedValue(options.storedConfigs),
         writeConfigs: vi.fn<ConfigStore["writeConfigs"]>().mockResolvedValue(undefined),
-        readAcceptedRevision: vi.fn<ConfigStore["readAcceptedRevision"]>().mockResolvedValue(options.acceptedRevision),
-        writeAcceptedRevision: vi.fn<ConfigStore["writeAcceptedRevision"]>().mockResolvedValue(undefined),
-        readRejectedRevision: vi.fn<ConfigStore["readRejectedRevision"]>().mockResolvedValue(undefined),
-        writeRejectedRevision: vi.fn<ConfigStore["writeRejectedRevision"]>().mockResolvedValue(undefined),
+        readAcceptedRevision: vi
+            .fn<ConfigStore["readAcceptedRevision"]>()
+            .mockImplementation(async (): Promise<string | undefined> => await Promise.resolve(revisions.accepted)),
+        writeAcceptedRevision: vi
+            .fn<ConfigStore["writeAcceptedRevision"]>()
+            .mockImplementation(async (revisionId: string): Promise<void> => {
+                revisions.accepted = revisionId;
+                await Promise.resolve();
+            }),
+        readRejectedRevision: vi
+            .fn<ConfigStore["readRejectedRevision"]>()
+            .mockImplementation(async (): Promise<string | undefined> => await Promise.resolve(revisions.rejected)),
+        writeRejectedRevision: vi
+            .fn<ConfigStore["writeRejectedRevision"]>()
+            .mockImplementation(async (revisionId: string): Promise<void> => {
+                revisions.rejected = revisionId;
+                await Promise.resolve();
+            }),
     };
 }
 

@@ -1,6 +1,7 @@
 import type { ThreadConfig } from "../../src/configuration/index.js";
-import { createFakePost } from "./fakeRotationPorts.js";
-import type { FakePost } from "./fakeRotationPorts.js";
+import type { NewComment } from "../../src/rotation/index.js";
+import { createFakePost } from "./fakePosts.js";
+import type { FakePost } from "./fakePosts.js";
 
 // Thread configs, posts and failures shared by the rotation use-case tests.
 
@@ -39,8 +40,8 @@ export function failureAlert(details: string): Readonly<{ subject: string; bodyM
     return {
         subject: "Sticky Manager could not refresh its threads",
         bodyMarkdown: [
-            "A refresh of the managed threads failed, so a thread may need checking. A rotation that stopped part-way can leave the old post unstickied and not yet replaced, or the new post not yet stickied and the old one not yet locked.",
-            "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
+            "A refresh of the managed threads failed. If it interrupted a rotation, that thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.",
+            "Sticky Manager tries again within the hour and finishes any interrupted rotation. It sends no further alert until a refresh succeeds.",
             `Details: ${details}`,
         ].join("\n\n"),
     };
@@ -66,4 +67,9 @@ export function fullPost(id: string, numberOfComments: number): FakePost {
         numberOfComments,
         stickied: true,
     });
+}
+
+/** A new comment on `postId`, whose event reports `reportedComments` (0: the event did not say). */
+export function commentOn(postId: string, reportedComments = 0): NewComment {
+    return { postId, reportedComments };
 }

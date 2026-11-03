@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFakeDevvitContext } from "../../../tests/support/fakeDevvitContext.js";
-import { createFakePost } from "../../../tests/support/fakeRotationPorts.js";
+import { createFakePost } from "../../../tests/support/fakePosts.js";
 import { redditPosts } from "./redditPosts.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -54,5 +54,22 @@ describe(redditPosts, (): void => {
 
         await expect(redditPosts(fakes.context).get("t3_alpha")).resolves.toBe(POST);
         expect(fakes.reddit.getPostById).toHaveBeenCalledExactlyOnceWith("t3_alpha");
+    });
+
+    it("reads a comment by its ID", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        const fakes = createFakeDevvitContext();
+        const { comment } = createFakePost({
+            body: "Body",
+            createdAt: new Date("2026-04-21T10:00:00Z"),
+            id: "t3_alpha",
+            numberOfComments: 1,
+            stickied: false,
+        });
+        fakes.reddit.getCommentById.mockResolvedValue(comment);
+
+        await expect(redditPosts(fakes.context).getComment("t1_alpha")).resolves.toBe(comment);
+        expect(fakes.reddit.getCommentById).toHaveBeenCalledExactlyOnceWith("t1_alpha");
     });
 });

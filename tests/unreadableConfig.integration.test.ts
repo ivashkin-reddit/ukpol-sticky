@@ -3,12 +3,17 @@ import { describe, expect, vi } from "vitest";
 import { configReadPorts } from "../src/composition.js";
 import { getThreadConfigs, storeThreadConfigs, UnreadableConfigError } from "../src/configuration/index.js";
 import type { ConfigReadPorts } from "../src/configuration/index.js";
+import { redisAlertLatch } from "../src/notifications/adapters/redisAlertLatch.js";
 import { TEST_SUBREDDIT_ID } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
+import { freezeTime } from "./support/fakeClock.js";
 import type { CreateModInboxConversation } from "./support/fakeDevvitContext.js";
 
 // Each test gets a fresh in-memory Devvit world; five seconds covers that setup on a slow machine.
 const TEST_OPTIONS = { timeout: 5000 };
+
+// The unreadable-config alert's latch, as the composition root names it.
+const UNREADABLE_ALERT_KEY = "UnreadableConfigAlertSent";
 
 const EXPECTED_ALERT = {
     subredditId: TEST_SUBREDDIT_ID,
@@ -72,4 +77,46 @@ describe("an unreadable stored config", (): void => {
         ).toStrictEqual(["rejected", "rejected"]);
         expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
     });
+
+    devvitIt(
+        "alerts once a claim whose sender died unsent has lapsed, ten minutes on",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            freezeTime("2026-04-21T10:00:00Z");
+            const { ports, createModInboxConversation } = await storeUnreadableConfig();
+            // An earlier reader claimed the alert, then died before sending it.
+            await redisAlertLatch(redis, UNREADABLE_ALERT_KEY).claim();
+
+            vi.setSystemTime(new Date("2026-04-21T10:09:59Z"));
+
+            await expect(getThreadConfigs(ports)).rejects.toBeInstanceOf(UnreadableConfigError);
+
+            vi.setSystemTime(new Date("2026-04-21T10:10:01Z"));
+            await getThreadConfigs(ports).catch((): undefined => undefined);
+
+            expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
+        },
+    );
+
+    devvitIt(
+        "keeps a sent alert's claim until fresh thread configs are stored, however long that takes",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            freezeTime("2026-04-21T10:00:00Z");
+            const { ports, createModInboxConversation } = await storeUnreadableConfig();
+
+            await expect(getThreadConfigs(ports)).rejects.toBeInstanceOf(UnreadableConfigError);
+            // -1: the key has no expiry.
+            await expect(redis.expireTime(UNREADABLE_ALERT_KEY)).resolves.toBe(-1);
+
+            vi.setSystemTime(new Date("2026-04-22T10:00:00Z"));
+            await getThreadConfigs(ports).catch((): undefined => undefined);
+
+            expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
+        },
+    );
 });

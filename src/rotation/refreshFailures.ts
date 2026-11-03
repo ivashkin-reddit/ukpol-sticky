@@ -20,8 +20,8 @@ async function alertModerators(ports: FailureAlertPorts, error: unknown): Promis
         await ports.notifyModerators({
             subject: "Sticky Manager could not refresh its threads",
             bodyMarkdown: [
-                "A refresh of the managed threads failed, so a thread may need checking. A rotation that stopped part-way can leave the old post unstickied and not yet replaced, or the new post not yet stickied and the old one not yet locked.",
-                "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
+                "A refresh of the managed threads failed. If it interrupted a rotation, that thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.",
+                "Sticky Manager tries again within the hour and finishes any interrupted rotation. It sends no further alert until a refresh succeeds.",
                 `Details: ${reason}`,
             ].join("\n\n"),
         });
@@ -29,6 +29,16 @@ async function alertModerators(ports: FailureAlertPorts, error: unknown): Promis
         // Release the claim, so the next failure retries the alert.
         await ports.refreshFailureAlert.release();
         throw new Error(`Could not alert moderators that a refresh failed (${reason})`, { cause: sendError });
+    }
+
+    try {
+        await ports.refreshFailureAlert.confirm();
+    } catch (confirmError: unknown) {
+        // The claim lapses on its own; releasing it now would send a second alert at the next failure.
+        throw new Error(
+            `Moderators were alerted that a refresh failed (${reason}), but the alert could not be recorded as sent`,
+            { cause: confirmError },
+        );
     }
 }
 

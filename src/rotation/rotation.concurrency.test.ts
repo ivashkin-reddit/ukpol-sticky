@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { defer } from "../../tests/support/defer.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
-import { COMMENT_CAP, fullPost, newPost, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
+import { COMMENT_CAP, commentOn, fullPost, newPost, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
 import type { ManagedPost } from "./ports.js";
 import { refreshAllThreads, rotateIfCapReached } from "./rotation.js";
 
@@ -75,11 +75,11 @@ describe("concurrent rotations of one thread config", (): void => {
             const { fakes, holdNextPublish } = fullThread();
             const releasePublish = holdNextPublish();
 
-            const first = rotateIfCapReached("t3_full", fakes.ports);
+            const first = rotateIfCapReached(commentOn("t3_full"), fakes.ports);
             await vi.waitFor((): void => {
                 expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith(REPLACEMENT);
             });
-            await rotateIfCapReached("t3_full", fakes.ports);
+            await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
             releasePublish();
             await first;
 
@@ -100,7 +100,7 @@ describe("concurrent rotations of one thread config", (): void => {
             await vi.waitFor((): void => {
                 expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith(REPLACEMENT);
             });
-            await rotateIfCapReached("t3_full", fakes.ports);
+            await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
             releasePublish();
             await refresh;
 
@@ -115,9 +115,9 @@ describe("concurrent rotations of one thread config", (): void => {
             expect.assertions(2);
 
             const { fakes } = fullThread();
-            await rotateIfCapReached("t3_full", fakes.ports);
+            await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
             // A comment on the old post, counted before the first rotation retired it, arrives late.
-            await rotateIfCapReached("t3_full", fakes.ports);
+            await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
 
             expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith(REPLACEMENT);
             expect(fakes.threadLocks.unlock).toHaveBeenCalledTimes(fakes.threadLocks.tryLock.mock.calls.length);

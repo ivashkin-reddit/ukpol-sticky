@@ -2,6 +2,7 @@
 // schedules and at their comment caps. Its use cases take the ports in ports.ts; src/composition.ts wires the adapters.
 
 export type {
+    Handover,
     LastRefresh,
     LivePosts,
     LoadThreadConfigs,
@@ -22,3 +23,4 @@ export {
     startRefreshCheck,
 } from "./refreshSchedule.js";
 export { forgetDeletedPost, refreshAllThreads, rotateIfCapReached } from "./rotation.js";
+export type { NewComment } from "./rotation.js";

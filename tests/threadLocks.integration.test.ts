@@ -1,5 +1,6 @@
 import { describe, expect, vi } from "vitest";
 import { rotationPorts } from "../src/composition.js";
+import type { ThreadLocks } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -34,4 +35,25 @@ describe("thread locks on Devvit's Redis", (): void => {
 
         expect([beforeExpiry, afterExpiry]).toStrictEqual([false, true]);
     });
+
+    devvitIt(
+        "keep a later holder's lock when an earlier holder outlived its own and then unlocks",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            freezeTime("2026-04-21T10:00:00Z");
+            vi.spyOn(console, "error").mockImplementation((): undefined => undefined);
+            // Each invocation builds its own ports, as each Devvit handler does.
+            const [first, second, third] = [1, 2, 3].map((): ThreadLocks => rotationPorts(HARNESS_CONTEXT).threadLocks);
+            await first?.tryLock("daily-thread");
+            vi.setSystemTime(new Date("2026-04-21T10:02:01Z"));
+            const secondHolds = await second?.tryLock("daily-thread");
+            await first?.unlock("daily-thread");
+            const thirdHolds = await third?.tryLock("daily-thread");
+
+            expect(secondHolds).toBe(true);
+            expect(thirdHolds).toBe(false);
+        },
+    );
 });

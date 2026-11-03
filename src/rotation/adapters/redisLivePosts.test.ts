@@ -8,18 +8,32 @@ const TEST_OPTIONS = { timeout: 1000 };
 
 describe(redisLivePosts, (): void => {
     it("reads live posts from the StickyPostStore hash", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
+        expect.assertions(2);
 
         const { redis } = createFakeDevvitContext();
         const livePosts = redisLivePosts(redis);
         await livePosts.all();
         await livePosts.get("alpha");
-        await livePosts.configNames();
 
         expect(redis.hGetAll).toHaveBeenCalledExactlyOnceWith("StickyPostStore");
         expect(redis.hGet).toHaveBeenCalledExactlyOnceWith("StickyPostStore", "alpha");
-        expect(redis.hKeys).toHaveBeenCalledExactlyOnceWith("StickyPostStore");
     });
+
+    it(
+        "names the thread configs with a live post or an unfinished handover, each once",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            const { redis } = createFakeDevvitContext();
+            redis.hKeys.mockImplementation(
+                async (key: string): Promise<string[]> =>
+                    await Promise.resolve(key === "StickyPostStore" ? ["alpha", "beta"] : ["beta", "gamma"]),
+            );
+
+            await expect(redisLivePosts(redis).configNames()).resolves.toStrictEqual(["alpha", "beta", "gamma"]);
+        },
+    );
 
     it("records a live post in the StickyPostStore hash", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
@@ -30,15 +44,20 @@ describe(redisLivePosts, (): void => {
         expect(redis.hSet).toHaveBeenCalledExactlyOnceWith("StickyPostStore", { alpha: "t3_alpha" });
     });
 
-    it("forgets live posts and the comment caps of the given posts", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "forgets live posts, their unfinished handovers and the comment caps of the given posts",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const { redis } = createFakeDevvitContext();
-        await redisLivePosts(redis).forget(["alpha", "beta"], ["t3_alpha", "t3_beta"]);
+            const { redis } = createFakeDevvitContext();
+            await redisLivePosts(redis).forget(["alpha", "beta"], ["t3_alpha", "t3_beta"]);
 
-        expect(redis.hDel).toHaveBeenCalledExactlyOnceWith("StickyPostStore", ["alpha", "beta"]);
-        expect(redis.del).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_alpha", "CommentCap:t3_beta");
-    });
+            expect(redis.hDel).toHaveBeenNthCalledWith(1, "StickyPostStore", ["alpha", "beta"]);
+            expect(redis.hDel).toHaveBeenNthCalledWith(2, "PendingHandovers", ["alpha", "beta"]);
+            expect(redis.del).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_alpha", "CommentCap:t3_beta");
+        },
+    );
 
     it("deletes no comment cap when no post is given", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -46,7 +65,7 @@ describe(redisLivePosts, (): void => {
         const { redis } = createFakeDevvitContext();
         await redisLivePosts(redis).forget(["alpha"], []);
 
-        expect(redis.hDel).toHaveBeenCalledExactlyOnceWith("StickyPostStore", ["alpha"]);
+        expect(redis.hDel).toHaveBeenCalledWith("StickyPostStore", ["alpha"]);
         expect(redis.del).not.toHaveBeenCalled();
     });
 
@@ -100,5 +119,58 @@ describe("redisLivePosts().getCommentCap", (): void => {
         await redisLivePosts(redis).forgetCommentCap("t3_alpha");
 
         expect(redis.del).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_alpha");
+    });
+});
+
+describe("redisLivePosts() handovers", (): void => {
+    it("saves a handover as JSON in the PendingHandovers hash", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+        await redisLivePosts(redis).saveHandover("alpha", {
+            newPostId: "t3_new",
+            oldPostId: "t3_old",
+            endNoteId: "t1_note",
+        });
+
+        expect(redis.hSet).toHaveBeenCalledExactlyOnceWith("PendingHandovers", {
+            alpha: JSON.stringify({ newPostId: "t3_new", oldPostId: "t3_old", endNoteId: "t1_note" }),
+        });
+    });
+
+    it("reads every unfinished handover back", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        const { redis } = createFakeDevvitContext();
+        redis.hGetAll.mockResolvedValue({
+            alpha: JSON.stringify({ newPostId: "t3_new" }),
+            beta: JSON.stringify({ newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b" }),
+        });
+
+        await expect(redisLivePosts(redis).handovers()).resolves.toStrictEqual({
+            alpha: { newPostId: "t3_new" },
+            beta: { newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b" },
+        });
+        expect(redis.hGetAll).toHaveBeenCalledExactlyOnceWith("PendingHandovers");
+    });
+
+    it("forgets a finished handover", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+        await redisLivePosts(redis).forgetHandover("alpha");
+
+        expect(redis.hDel).toHaveBeenCalledExactlyOnceWith("PendingHandovers", ["alpha"]);
+    });
+
+    it("rejects a stored handover that is not one, naming its thread config", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+        redis.hGetAll.mockResolvedValue({ alpha: JSON.stringify({ newPostId: 5 }) });
+
+        await expect(redisLivePosts(redis).handovers()).rejects.toThrow(
+            new TypeError('The stored handover of thread config alpha is not a handover: {"newPostId":5}'),
+        );
     });
 });

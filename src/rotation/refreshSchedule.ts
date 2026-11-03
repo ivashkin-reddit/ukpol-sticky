@@ -1,4 +1,4 @@
-import { addMinutes, addSeconds } from "date-fns";
+import { addMinutes, addSeconds, subMinutes } from "date-fns";
 import { getSchedule } from "../configuration/index.js";
 import { earliest, getRotationTime } from "./domain/rotationRules.js";
 import type { RefreshJobs, RefreshStatus, RefreshStatusStore, RotationPorts } from "./ports.js";
@@ -11,6 +11,13 @@ const REQUESTED_REFRESH_DELAY_SECONDS = 1;
 // How soon a thread config that failed is retried. Its own rotation time is left out of the reckoning, since a
 // thread config that keeps failing while overdue would otherwise bring the next refresh round every few seconds.
 const RETRY_DELAY_MINUTES = 15;
+// A pending refresh this long past its time is taken as stuck: Devvit runs a job within about a minute of its time.
+const STUCK_AFTER_MINUTES = 10;
+
+/** Whether a refresh due at `runAt` can still be expected to run as of `now`: it is not long past its time. */
+function isOnTime(runAt: Date, now: Date): boolean {
+    return runAt.getTime() > subMinutes(now, STUCK_AFTER_MINUTES).getTime();
+}
 
 async function findNextRotationTime(
     ports: RotationPorts,
@@ -61,25 +68,40 @@ export async function scheduleNextRefresh(
     ports: RotationPorts,
     failedConfigNames: readonly string[] = [],
 ): Promise<void> {
-    // Read everything first, so thread configs that cannot be read fail before any pending refresh is cancelled.
+    // Read everything first, so thread configs that cannot be read fail before any pending refresh is replaced.
     const refreshAt = await findNextRefreshTime(ports, failedConfigNames);
-    await ports.refreshJobs.cancelAll();
     if (refreshAt === undefined) {
+        await ports.refreshJobs.cancelAll();
         await ports.refreshStatus.recordNextRefresh(undefined);
         console.log("No live post has a schedule, so no refresh is scheduled.");
         return;
     }
 
-    await ports.refreshJobs.scheduleAt(refreshAt);
+    await ports.refreshJobs.replaceWith(refreshAt);
     await ports.refreshStatus.recordNextRefresh(refreshAt);
     console.log(`Next refresh scheduled for ${refreshAt.toISOString()}.`);
+}
+
+/**
+ * Makes sure a refresh retries the failed thread config within the retry delay, unless an on-time refresh already
+ * pending runs before then. While Reddit is down every comment on a full thread fails the same way, and rescheduling
+ * for each would churn the scheduler into its limit of 60 new jobs a minute.
+ */
+export async function scheduleRetry(ports: RotationPorts, failedConfigName: string): Promise<void> {
+    const now = new Date();
+    const retryBy = addSeconds(addMinutes(now, RETRY_DELAY_MINUTES), REFRESH_JOB_DELAY_SECONDS);
+    const pendingRunTimes = await ports.refreshJobs.pendingRunTimes();
+    if (pendingRunTimes.some((runAt: Date): boolean => isOnTime(runAt, now) && runAt.getTime() <= retryBy.getTime())) {
+        return;
+    }
+
+    await scheduleNextRefresh(ports, [failedConfigName]);
 }
 
 /** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */
 export async function requestRefresh(ports: Pick<RotationPorts, "refreshJobs" | "refreshStatus">): Promise<void> {
     const refreshAt = addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS);
-    await ports.refreshJobs.cancelAll();
-    await ports.refreshJobs.scheduleAt(refreshAt);
+    await ports.refreshJobs.replaceWith(refreshAt);
     await ports.refreshStatus.recordNextRefresh(refreshAt);
 }
 
@@ -89,19 +111,41 @@ export async function startRefreshCheck(refreshJobs: RefreshJobs): Promise<void>
 }
 
 /**
+ * Starts the hourly refresh check again if it has gone. Every refresh calls this, and the check requests a refresh
+ * when none will run, so each keeps the other going.
+ */
+export async function keepRefreshCheckRunning(refreshJobs: RefreshJobs): Promise<void> {
+    if (await refreshJobs.hasHourlyCheck()) {
+        return;
+    }
+
+    console.error("The hourly refresh check was missing, so it was started again.");
+    await refreshJobs.startHourlyCheck();
+}
+
+/**
  * The hourly refresh check. Each refresh schedules the next, so a refresh that fails early leaves none pending; the
- * check then requests one, which retries what failed. A refresh already pending is left alone. One the check requests
- * can still overlap a refresh already running; thread locks keep that from rotating a thread twice.
+ * check then requests one, which retries what failed. A pending refresh long past its time has not run and will not,
+ * so the check replaces it too; one still on time is left alone. A refresh the check requests can overlap one already
+ * running; thread locks keep that from rotating a thread twice.
  */
 export async function ensureRefreshPending(
     ports: FailureAlertPorts & Pick<RotationPorts, "refreshJobs" | "refreshStatus">,
 ): Promise<void> {
     await alertingOnFailure(ports, async (): Promise<void> => {
-        if (await ports.refreshJobs.isPending()) {
+        const now = new Date();
+        const pendingRunTimes = await ports.refreshJobs.pendingRunTimes();
+        if (pendingRunTimes.some((runAt: Date): boolean => isOnTime(runAt, now))) {
             return;
         }
 
-        console.log("No refresh is pending, so the refresh check requested one.");
+        const [stuckAt] = pendingRunTimes;
+        if (stuckAt === undefined) {
+            console.log("No refresh is pending, so the refresh check requested one.");
+        } else {
+            console.error(`The refresh due at ${stuckAt.toISOString()} has not run, so the refresh check replaced it.`);
+        }
+
         await requestRefresh(ports);
     });
 }
