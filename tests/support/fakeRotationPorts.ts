@@ -3,6 +3,7 @@ import type { Mock } from "vitest";
 import type { ThreadConfig } from "../../src/configuration/index.js";
 import type { NotifyModerators } from "../../src/notifications/index.js";
 import type {
+    AppliedThreadConfigs,
     LivePosts,
     LoadThreadConfigs,
     Posts,
@@ -30,6 +31,10 @@ export interface FakeLivePosts {
 
 export interface FakeRotationPorts {
     readonly ports: RotationPorts;
+    readonly appliedThreadConfigs: Readonly<{
+        matches: Mock<AppliedThreadConfigs["matches"]>;
+        record: Mock<AppliedThreadConfigs["record"]>;
+    }>;
     readonly livePosts: FakeLivePosts;
     readonly notifyModerators: Mock<NotifyModerators>;
     readonly posts: Readonly<{
@@ -90,6 +95,28 @@ function createFakeRefreshStatus(): FakeRotationPorts["refreshStatus"] {
     };
 }
 
+/**
+ * Applied thread configs that behave like the stored ones: thread configs match what was last recorded, compared as
+ * JSON. They start with `configs` applied, as after a refresh.
+ */
+function createFakeAppliedThreadConfigs(configs: readonly ThreadConfig[]): FakeRotationPorts["appliedThreadConfigs"] {
+    const applied = { json: JSON.stringify(configs) };
+    return {
+        matches: vi
+            .fn<AppliedThreadConfigs["matches"]>()
+            .mockImplementation(
+                async (current: readonly ThreadConfig[]): Promise<boolean> =>
+                    await Promise.resolve(JSON.stringify(current) === applied.json),
+            ),
+        record: vi
+            .fn<AppliedThreadConfigs["record"]>()
+            .mockImplementation(async (current: readonly ThreadConfig[]): Promise<void> => {
+                applied.json = JSON.stringify(current);
+                await Promise.resolve();
+            }),
+    };
+}
+
 /** Thread locks that behave like the real ones: one holder per thread config until it unlocks. */
 function createFakeThreadLocks(): FakeRotationPorts["threadLocks"] {
     const held = new Set<string>();
@@ -111,12 +138,14 @@ export const PENDING_REFRESH_AT = new Date("2100-01-01T00:00:00Z");
 
 /**
  * Rotation ports whose every method is a typed mock: no live posts (unless `livePosts` implements them), a refresh
- * pending and the hourly check scheduled, an alert latch that can be claimed, working thread locks, and `configs` as the thread configs in force.
+ * pending and the hourly check scheduled, an alert latch that can be claimed, working thread locks, and `configs` as the
+ * thread configs in force, already applied by a refresh.
  */
 export function createFakeRotationPorts(
     configs: readonly ThreadConfig[] = [],
     livePosts: Partial<LivePosts> = {},
 ): FakeRotationPorts {
+    const appliedThreadConfigs = createFakeAppliedThreadConfigs(configs);
     const fakeLivePosts = createFakeLivePosts(livePosts);
     const posts = {
         get: vi.fn<Posts["get"]>(),
@@ -138,6 +167,7 @@ export function createFakeRotationPorts(
 
     return {
         ports: {
+            appliedThreadConfigs,
             livePosts: fakeLivePosts,
             notifyModerators,
             posts,
@@ -147,6 +177,7 @@ export function createFakeRotationPorts(
             threadConfigs,
             threadLocks,
         },
+        appliedThreadConfigs,
         livePosts: fakeLivePosts,
         notifyModerators,
         posts,

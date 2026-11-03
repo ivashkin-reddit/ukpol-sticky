@@ -88,9 +88,20 @@ async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], live
     }
 }
 
-/** Schedules the next refresh (retrying failed thread configs), forgets removed ones, then reports any failure. */
-async function finishRefresh(results: readonly ThreadResult[], ports: RotationPorts): Promise<void> {
+/**
+ * Records `configs` as applied, schedules the next refresh (retrying failed thread configs), forgets removed ones, then
+ * reports any failure.
+ */
+async function finishRefresh(
+    configs: readonly ThreadConfig[],
+    results: readonly ThreadResult[],
+    ports: RotationPorts,
+): Promise<void> {
     const failures = results.filter(isFailure);
+    // Recorded even when thread configs failed, and before scheduling, so a failed thread config is retried after its
+    // retry delay rather than at once as if the thread configs had changed. Thread configs stored while this refresh
+    // ran differ from `configs`, so the refresh after this one is due at once and applies them.
+    await ports.appliedThreadConfigs.record(configs);
     await scheduleNextRefresh(
         ports,
         failures.map((failure): string => failure.configName),
@@ -110,11 +121,12 @@ async function refreshEveryThread(ports: RotationPorts): Promise<void> {
     if (configs.length === 0) {
         console.log("No thread configs are in force, so every live post is forgotten.");
         await forgetLivePosts(await ports.livePosts.configNames(), ports.livePosts);
+        await ports.appliedThreadConfigs.record(configs);
         await scheduleNextRefresh(ports);
         return;
     }
 
-    await finishRefresh(await refreshInOrder(refreshOrder(configs), ports), ports);
+    await finishRefresh(configs, await refreshInOrder(refreshOrder(configs), ports), ports);
 }
 
 /**

@@ -10,6 +10,8 @@ import { redisAlertLatch } from "./notifications/adapters/redisAlertLatch.js";
 import type { AlertLatchRedis } from "./notifications/adapters/redisAlertLatch.js";
 import { redditPosts } from "./rotation/adapters/redditPosts.js";
 import type { RedditPostsContext } from "./rotation/adapters/redditPosts.js";
+import { redisAppliedThreadConfigs } from "./rotation/adapters/redisAppliedThreadConfigs.js";
+import type { AppliedThreadConfigsRedis } from "./rotation/adapters/redisAppliedThreadConfigs.js";
 import { redisLivePosts } from "./rotation/adapters/redisLivePosts.js";
 import type { LivePostsRedis } from "./rotation/adapters/redisLivePosts.js";
 import { redisRefreshStatus } from "./rotation/adapters/redisRefreshStatus.js";
@@ -33,7 +35,10 @@ export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 
 export type RotationContext = ConfigReadContext &
     RedditPostsContext &
-    Readonly<{ redis: LivePostsRedis & RefreshStatusRedis & ThreadLocksRedis; scheduler: RefreshScheduler }>;
+    Readonly<{
+        redis: AppliedThreadConfigsRedis & LivePostsRedis & RefreshStatusRedis & ThreadLocksRedis;
+        scheduler: RefreshScheduler;
+    }>;
 
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {
@@ -50,6 +55,7 @@ export function configurationPorts(context: ConfigurationContext): Configuration
 export function rotationPorts(context: RotationContext): RotationPorts {
     const configRead = configReadPorts(context);
     return {
+        appliedThreadConfigs: redisAppliedThreadConfigs(context.redis),
         livePosts: redisLivePosts(context.redis),
         notifyModerators: configRead.notifyModerators,
         posts: redditPosts(context),

@@ -4,6 +4,7 @@ import { createFakePost } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { UnreadableConfigError } from "../configuration/index.js";
+import type { ThreadConfig } from "../configuration/index.js";
 import type { RefreshStatus } from "./ports.js";
 import { getRefreshStatus, requestRefresh, scheduleNextRefresh } from "./refreshSchedule.js";
 
@@ -24,6 +25,43 @@ describe(scheduleNextRefresh, (): void => {
             await expect(scheduleNextRefresh(fakes.ports)).rejects.toThrow(unreadable);
             expect(fakes.refreshJobs.cancelAll).not.toHaveBeenCalled();
             expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+        },
+    );
+
+    it(
+        "schedules a refresh at once while the thread configs in force are not the ones the last refresh applied",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            freezeTime("2026-04-21T10:00:00Z");
+            silenceConsole("log");
+            const daily: ThreadConfig = {
+                name: "daily-thread",
+                enabled: true,
+                title: "Daily",
+                frequency: "daily",
+                postTime: "12:30",
+                maxComments: 100,
+                body: "Body",
+            };
+            const fakes = createFakeRotationPorts([{ ...daily, body: "Edited body" }]);
+            // The last refresh applied the old body; its live post is not due until 12:30.
+            await fakes.ports.appliedThreadConfigs.record([daily]);
+            fakes.livePosts.all.mockResolvedValue({ "daily-thread": "t3_daily" });
+            fakes.posts.get.mockResolvedValue(
+                createFakePost({
+                    body: "Body",
+                    createdAt: new Date("2026-04-21T05:00:00Z"),
+                    id: "t3_daily",
+                    numberOfComments: 0,
+                    stickied: true,
+                }).post,
+            );
+
+            await scheduleNextRefresh(fakes.ports);
+
+            expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:00:05.000Z"));
         },
     );
 });

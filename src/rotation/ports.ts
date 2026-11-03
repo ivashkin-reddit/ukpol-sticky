@@ -123,8 +123,19 @@ export interface RefreshStatusStore {
 /** The thread configs in force. */
 export type LoadThreadConfigs = () => Promise<readonly ThreadConfig[]>;
 
+/**
+ * The thread configs the last refresh applied. While the thread configs in force differ from them, a refresh is due at
+ * once, so the need to apply stored thread configs outlives any pending refresh that rescheduling replaces.
+ */
+export interface AppliedThreadConfigs {
+    /** Whether `configs` are the thread configs the last refresh applied; false until a refresh has recorded any. */
+    readonly matches: (configs: readonly ThreadConfig[]) => Promise<boolean>;
+    readonly record: (configs: readonly ThreadConfig[]) => Promise<void>;
+}
+
 /** Every port the rotation use cases take; each use case declares the subset it uses. */
 export interface RotationPorts {
+    readonly appliedThreadConfigs: AppliedThreadConfigs;
     readonly livePosts: LivePosts;
     readonly notifyModerators: NotifyModerators;
     readonly posts: Posts;
