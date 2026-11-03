@@ -9,6 +9,7 @@ import type {
     ManagedPost,
     Posts,
     RefreshJobs,
+    RefreshStatusStore,
     RotationPorts,
 } from "../../src/rotation/index.js";
 import { createFakeAlertLatch } from "./fakeAlertLatch.js";
@@ -36,6 +37,12 @@ export interface FakeRotationPorts {
         isPending: Mock<RefreshJobs["isPending"]>;
         startHourlyCheck: Mock<RefreshJobs["startHourlyCheck"]>;
     }>;
+    readonly refreshStatus: Readonly<{
+        read: Mock<RefreshStatusStore["read"]>;
+        recordSuccess: Mock<RefreshStatusStore["recordSuccess"]>;
+        recordFailure: Mock<RefreshStatusStore["recordFailure"]>;
+        recordNextRefresh: Mock<RefreshStatusStore["recordNextRefresh"]>;
+    }>;
     readonly threadConfigs: Mock<LoadThreadConfigs>;
 }
 
@@ -61,6 +68,16 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
         startHourlyCheck: vi.fn<RefreshJobs["startHourlyCheck"]>().mockResolvedValue(undefined),
     };
     const notifyModerators = vi.fn<NotifyModerators>().mockResolvedValue(undefined);
+    const refreshStatus = {
+        read: vi.fn<RefreshStatusStore["read"]>().mockResolvedValue({
+            lastRefresh: undefined,
+            lastSuccessAt: undefined,
+            nextRefreshAt: undefined,
+        }),
+        recordSuccess: vi.fn<RefreshStatusStore["recordSuccess"]>().mockResolvedValue(undefined),
+        recordFailure: vi.fn<RefreshStatusStore["recordFailure"]>().mockResolvedValue(undefined),
+        recordNextRefresh: vi.fn<RefreshStatusStore["recordNextRefresh"]>().mockResolvedValue(undefined),
+    };
     const refreshFailureAlert = createFakeAlertLatch();
     const threadConfigs = vi.fn<LoadThreadConfigs>().mockResolvedValue(configs);
 
@@ -71,6 +88,7 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
             posts,
             refreshFailureAlert: refreshFailureAlert.latch,
             refreshJobs,
+            refreshStatus,
             threadConfigs,
         },
         livePosts,
@@ -78,6 +96,7 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
         posts,
         refreshFailureAlert,
         refreshJobs,
+        refreshStatus,
         threadConfigs,
     };
 }

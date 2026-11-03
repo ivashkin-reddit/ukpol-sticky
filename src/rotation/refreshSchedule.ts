@@ -1,7 +1,7 @@
 import { addSeconds } from "date-fns";
 import { getSchedule } from "../configuration/index.js";
 import { earliest, getRotationTime } from "./domain/rotationRules.js";
-import type { RefreshJobs, RotationPorts } from "./ports.js";
+import type { RefreshJobs, RefreshStatus, RefreshStatusStore, RotationPorts } from "./ports.js";
 import { alertingOnFailure } from "./refreshFailures.js";
 import type { FailureAlertPorts } from "./refreshFailures.js";
 
@@ -34,19 +34,23 @@ export async function scheduleNextRefresh(ports: RotationPorts): Promise<void> {
     const nextRotationTime = await findNextRotationTime(ports);
     await ports.refreshJobs.cancelAll();
     if (nextRotationTime === undefined) {
+        await ports.refreshStatus.recordNextRefresh(undefined);
         console.log("No live post has a schedule, so no refresh is scheduled.");
         return;
     }
 
     const refreshAt = addSeconds(new Date(Math.max(nextRotationTime.getTime(), Date.now())), REFRESH_JOB_DELAY_SECONDS);
     await ports.refreshJobs.scheduleAt(refreshAt);
+    await ports.refreshStatus.recordNextRefresh(refreshAt);
     console.log(`Next refresh scheduled for ${refreshAt.toISOString()}.`);
 }
 
 /** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */
-export async function requestRefresh(refreshJobs: RefreshJobs): Promise<void> {
-    await refreshJobs.cancelAll();
-    await refreshJobs.scheduleAt(addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS));
+export async function requestRefresh(ports: Pick<RotationPorts, "refreshJobs" | "refreshStatus">): Promise<void> {
+    const refreshAt = addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS);
+    await ports.refreshJobs.cancelAll();
+    await ports.refreshJobs.scheduleAt(refreshAt);
+    await ports.refreshStatus.recordNextRefresh(refreshAt);
 }
 
 /** Starts the hourly refresh check, replacing any earlier one. */
@@ -60,7 +64,7 @@ export async function startRefreshCheck(refreshJobs: RefreshJobs): Promise<void>
  * refresh alongside one.
  */
 export async function ensureRefreshPending(
-    ports: FailureAlertPorts & Pick<RotationPorts, "refreshJobs">,
+    ports: FailureAlertPorts & Pick<RotationPorts, "refreshJobs" | "refreshStatus">,
 ): Promise<void> {
     await alertingOnFailure(ports, async (): Promise<void> => {
         if (await ports.refreshJobs.isPending()) {
@@ -68,6 +72,11 @@ export async function ensureRefreshPending(
         }
 
         console.log("No refresh is pending, so the refresh check requested one.");
-        await requestRefresh(ports.refreshJobs);
+        await requestRefresh(ports);
     });
+}
+
+/** Whether refreshes are running, for moderators: what the last refresh did, and when the next is due. */
+export async function getRefreshStatus(refreshStatus: RefreshStatusStore): Promise<RefreshStatus> {
+    return await refreshStatus.read();
 }

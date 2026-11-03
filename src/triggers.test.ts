@@ -109,7 +109,7 @@ describe(onModAction, (): void => {
             expect(vi.mocked(configurationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
             expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith("mod_user", configuration);
             expect(vi.mocked(rotationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
-            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
+            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
         },
     );
 

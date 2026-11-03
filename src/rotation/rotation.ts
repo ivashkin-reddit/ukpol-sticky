@@ -2,7 +2,7 @@ import { getSchedule, renderTitle } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import { isDueForRotation, refreshOrder } from "./domain/rotationRules.js";
 import type { LivePosts, ManagedPost, RotationPorts } from "./ports.js";
-import { alertingOnFailure } from "./refreshFailures.js";
+import { alertingOnFailure, describeFailure } from "./refreshFailures.js";
 import { scheduleNextRefresh } from "./refreshSchedule.js";
 
 function findConfigNameOfLivePost(livePostIds: Readonly<Record<string, string>>, postId: string): string | undefined {
@@ -142,13 +142,21 @@ async function refreshEveryThread(ports: RotationPorts): Promise<void> {
 
 /**
  * One refresh: every enabled thread config's live post is published, rotated or brought up to date, live posts of
- * removed or disabled thread configs are forgotten, and the next refresh is scheduled. A failure alerts moderators;
- * a success lets the next failure alert them again.
+ * removed or disabled thread configs are forgotten, and the next refresh is scheduled. Its outcome is recorded in the
+ * refresh status. A failure alerts moderators; a success lets the next failure alert them again.
  */
 export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
-    await alertingOnFailure(ports, async (): Promise<void> => {
-        await refreshEveryThread(ports);
-    });
+    const startedAt = new Date();
+    try {
+        await alertingOnFailure(ports, async (): Promise<void> => {
+            await refreshEveryThread(ports);
+        });
+    } catch (error: unknown) {
+        await ports.refreshStatus.recordFailure(startedAt, describeFailure(error));
+        throw error;
+    }
+
+    await ports.refreshStatus.recordSuccess(startedAt);
     await ports.refreshFailureAlert.release();
 }
 

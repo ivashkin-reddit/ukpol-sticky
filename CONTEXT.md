@@ -60,6 +60,10 @@ _Avoid_: update, sync
 The hourly check that a refresh is pending; when none is, as after a refresh that failed, it requests one.
 _Avoid_: safety net, heartbeat, cron job
 
+**Refresh status**:
+Whether refreshes are running: how the last refresh ended, when one last succeeded, and when the next is due.
+_Avoid_: health, heartbeat
+
 ### Alerting moderators
 
 **Moderator alert**:

@@ -55,6 +55,28 @@ export interface RefreshJobs {
     readonly startHourlyCheck: () => Promise<void>;
 }
 
+/** How the last refresh ended. */
+export type LastRefresh =
+    Readonly<{ at: Date; outcome: "failed"; failure: string }> | Readonly<{ at: Date; outcome: "succeeded" }>;
+
+/** Whether refreshes are running: what the last one did, when one last succeeded, and when the next is due. */
+export interface RefreshStatus {
+    /** Undefined until the first refresh. */
+    readonly lastRefresh: LastRefresh | undefined;
+    readonly lastSuccessAt: Date | undefined;
+    /** Undefined when no refresh is scheduled; in the past when a scheduled refresh did not run or did not finish. */
+    readonly nextRefreshAt: Date | undefined;
+}
+
+/** The refresh status, recorded as refreshes run and are scheduled. */
+export interface RefreshStatusStore {
+    readonly read: () => Promise<RefreshStatus>;
+    readonly recordSuccess: (at: Date) => Promise<void>;
+    readonly recordFailure: (at: Date, failure: string) => Promise<void>;
+    /** Records when the next refresh is due, or that none is scheduled. */
+    readonly recordNextRefresh: (at: Date | undefined) => Promise<void>;
+}
+
 /** The thread configs in force. */
 export type LoadThreadConfigs = () => Promise<readonly ThreadConfig[]>;
 
@@ -66,5 +88,6 @@ export interface RotationPorts {
     /** Keeps the alert about failed refreshes to one until a refresh succeeds again. */
     readonly refreshFailureAlert: AlertLatch;
     readonly refreshJobs: RefreshJobs;
+    readonly refreshStatus: RefreshStatusStore;
     readonly threadConfigs: LoadThreadConfigs;
 }

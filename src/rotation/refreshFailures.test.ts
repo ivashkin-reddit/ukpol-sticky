@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
+import { FAILURE_ALERT, PUBLISH_ERROR } from "../../tests/support/rotationFixtures.js";
 import { UnreadableConfigError } from "../configuration/index.js";
 import { alertingOnFailure } from "./refreshFailures.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
-
-const STEP_ERROR = new Error("Reddit is down");
 
 function failingStep(error: unknown): () => Promise<void> {
     return vi.fn<() => Promise<void>>().mockRejectedValue(error);
@@ -28,15 +27,8 @@ describe(alertingOnFailure, (): void => {
 
         const fakes = createFakeRotationPorts();
 
-        await expect(alertingOnFailure(fakes.ports, failingStep(STEP_ERROR))).rejects.toBe(STEP_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith({
-            subject: "Sticky Manager could not refresh its threads",
-            bodyMarkdown: [
-                "A refresh of the managed threads failed. A thread that was rotating may have lost its live post: the old one unstickied and locked, with no replacement yet.",
-                "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
-                "Details: Reddit is down",
-            ].join("\n\n"),
-        });
+        await expect(alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR))).rejects.toBe(PUBLISH_ERROR);
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
     });
 
     it("sends nothing while an earlier alert's claim stands", TEST_OPTIONS, async (): Promise<void> => {
@@ -45,7 +37,7 @@ describe(alertingOnFailure, (): void => {
         const fakes = createFakeRotationPorts();
         fakes.refreshFailureAlert.claim.mockResolvedValue(false);
 
-        await expect(alertingOnFailure(fakes.ports, failingStep(STEP_ERROR))).rejects.toBe(STEP_ERROR);
+        await expect(alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR))).rejects.toBe(PUBLISH_ERROR);
         expect(fakes.notifyModerators).not.toHaveBeenCalled();
     });
 
@@ -68,7 +60,7 @@ describe(alertingOnFailure, (): void => {
             const fakes = createFakeRotationPorts();
             const sendError = new Error("modmail unavailable");
             fakes.notifyModerators.mockRejectedValue(sendError);
-            const running = alertingOnFailure(fakes.ports, failingStep(STEP_ERROR));
+            const running = alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR));
 
             await expect(running).rejects.toThrow(
                 new Error("Could not alert moderators that a refresh failed (Reddit is down)"),

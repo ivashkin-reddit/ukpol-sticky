@@ -55,7 +55,7 @@ describe("the refresh check", (): void => {
 
         freezeTime("2026-04-21T10:43:00Z");
         const ports = rotationPorts(HARNESS_CONTEXT);
-        await requestRefresh(ports.refreshJobs);
+        await requestRefresh(ports);
         const pendingIds = await refreshJobIds();
 
         await ensureRefreshPending(ports);

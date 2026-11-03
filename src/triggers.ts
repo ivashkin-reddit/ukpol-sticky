@@ -50,7 +50,7 @@ export async function onModAction(
     }
 
     if ((await applyConfigPageRevision(moderatorName, configurationPorts(context))) === "stored") {
-        await requestRefresh(rotationPorts(context).refreshJobs);
+        await requestRefresh(rotationPorts(context));
     }
 }
 

@@ -12,6 +12,8 @@ import { redditPosts } from "./rotation/adapters/redditPosts.js";
 import type { RedditPostsContext } from "./rotation/adapters/redditPosts.js";
 import { redisLivePosts } from "./rotation/adapters/redisLivePosts.js";
 import type { LivePostsRedis } from "./rotation/adapters/redisLivePosts.js";
+import { redisRefreshStatus } from "./rotation/adapters/redisRefreshStatus.js";
+import type { RefreshStatusRedis } from "./rotation/adapters/redisRefreshStatus.js";
 import { schedulerRefreshJobs } from "./rotation/adapters/schedulerRefreshJobs.js";
 import type { RefreshScheduler } from "./rotation/adapters/schedulerRefreshJobs.js";
 import type { RotationPorts } from "./rotation/index.js";
@@ -29,7 +31,7 @@ export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 
 export type RotationContext = ConfigReadContext &
     RedditPostsContext &
-    Readonly<{ redis: LivePostsRedis; scheduler: RefreshScheduler }>;
+    Readonly<{ redis: LivePostsRedis & RefreshStatusRedis; scheduler: RefreshScheduler }>;
 
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {
@@ -51,6 +53,7 @@ export function rotationPorts(context: RotationContext): RotationPorts {
         posts: redditPosts(context),
         refreshFailureAlert: redisAlertLatch(context.redis, REFRESH_FAILURE_ALERT_KEY),
         refreshJobs: schedulerRefreshJobs(context.scheduler),
+        refreshStatus: redisRefreshStatus(context.redis),
         threadConfigs: async (): Promise<readonly ThreadConfig[]> => await getThreadConfigs(configRead),
     };
 }

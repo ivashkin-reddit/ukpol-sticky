@@ -30,7 +30,7 @@ A modular monolith with one bounded context, managed threads, built as ports and
 - [eslint/architecture.mjs](eslint/architecture.mjs) enforces all of this with eslint-plugin-boundaries, and [tests/architecture.test.ts](tests/architecture.test.ts) checks that each rule still fires. A new module joins `MODULE_ORDER` there. A new rule gets a case in the test.
 - Planned features already have places:
     - Slack is a second adapter for `NotifyModerators`, chosen in `composition.ts`.
-    - A mod UI is a set of handlers at the edge that call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail.
+    - A mod UI is a set of handlers at the edge that call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail, and whether refreshes are running from `getRefreshStatus`.
 
 ## Logs
 
@@ -42,7 +42,7 @@ A modular monolith with one bounded context, managed threads, built as ports and
 
 ## Live state
 
-Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
+Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
 
 ## Config fields
 

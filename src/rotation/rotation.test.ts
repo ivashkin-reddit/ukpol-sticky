@@ -1,67 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { defer } from "../../tests/support/defer.js";
-import { createFakePost, createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
+import { freezeTime } from "../../tests/support/fakeClock.js";
+import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
+import {
+    DISABLED_CONFIG,
+    FAILURE_ALERT,
+    fullPost,
+    LOOSE_CONFIG,
+    newPost,
+    PUBLISH_ERROR,
+    STICKY_CONFIG,
+} from "../../tests/support/rotationFixtures.js";
 import { UnreadableConfigError } from "../configuration/index.js";
-import type { ThreadConfig } from "../configuration/index.js";
 import type { ManagedPost } from "./ports.js";
-import { forgetDeletedPost, refreshAllThreads, rotateIfCapReached } from "./rotation.js";
+import { refreshAllThreads } from "./rotation.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
 
-const STICKY_CONFIG: ThreadConfig = {
-    name: "sticky-thread",
-    enabled: true,
-    title: "Sticky thread",
-    maxComments: 100,
-    body: "Sticky body",
-    sticky: true,
-};
-const LOOSE_CONFIG: ThreadConfig = {
-    name: "loose-thread",
-    enabled: true,
-    title: "Loose thread",
-    maxComments: 100,
-    body: "Loose body",
-};
-const DISABLED_CONFIG: ThreadConfig = {
-    name: "disabled-thread",
-    enabled: false,
-    title: "Disabled thread",
-    maxComments: 100,
-    body: "Disabled body",
-};
-
 const UNREADABLE_ERROR = new UnreadableConfigError("the stored thread configs cannot be read");
-const PUBLISH_ERROR = new Error("Reddit is down");
-const FAILURE_ALERT = {
-    subject: "Sticky Manager could not refresh its threads",
-    bodyMarkdown: [
-        "A refresh of the managed threads failed. A thread that was rotating may have lost its live post: the old one unstickied and locked, with no replacement yet.",
-        "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
-        "Details: Reddit is down",
-    ].join("\n\n"),
-};
-
-function newPost(id: string): ReturnType<typeof createFakePost> {
-    return createFakePost({
-        body: undefined,
-        createdAt: new Date("2026-04-21T10:00:00Z"),
-        id,
-        numberOfComments: 0,
-        stickied: false,
-    });
-}
-
-function fullPost(id: string, numberOfComments: number): ReturnType<typeof createFakePost> {
-    return createFakePost({
-        body: "Sticky body",
-        createdAt: new Date("2026-04-21T09:00:00Z"),
-        id,
-        numberOfComments,
-        stickied: true,
-    });
-}
 
 describe(refreshAllThreads, (): void => {
     it(
@@ -122,6 +79,33 @@ describe(refreshAllThreads, (): void => {
 
         expect(fakes.refreshFailureAlert.release).toHaveBeenCalledExactlyOnceWith();
         expect(fakes.notifyModerators).not.toHaveBeenCalled();
+    });
+
+    it("records a successful refresh, as of when it started", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        freezeTime("2026-04-21T12:30:05Z");
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([]);
+
+        await refreshAllThreads(fakes.ports);
+
+        expect(fakes.refreshStatus.recordSuccess).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T12:30:05Z"));
+        expect(fakes.refreshStatus.recordFailure).not.toHaveBeenCalled();
+    });
+
+    it("records a failed refresh with its failure", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        freezeTime("2026-04-21T12:30:05Z");
+        const fakes = createFakeRotationPorts();
+        fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
+
+        await expect(refreshAllThreads(fakes.ports)).rejects.toBe(UNREADABLE_ERROR);
+        expect(fakes.refreshStatus.recordFailure).toHaveBeenCalledExactlyOnceWith(
+            new Date("2026-04-21T12:30:05Z"),
+            "the stored thread configs cannot be read",
+        );
     });
 
     it(
@@ -210,89 +194,5 @@ describe(refreshAllThreads, (): void => {
         expect(logSpy).toHaveBeenLastCalledWith(
             "Refresh complete for 2 thread configs: 0 rotated, 1 published, 0 updated, 1 unchanged.",
         );
-    });
-});
-
-describe(rotateIfCapReached, (): void => {
-    it("does nothing for a post without a stored comment cap", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        const fakes = createFakeRotationPorts();
-
-        await rotateIfCapReached("t3_other", fakes.ports);
-
-        expect(fakes.livePosts.getCommentCap).toHaveBeenCalledExactlyOnceWith("t3_other");
-        expect(fakes.posts.get).not.toHaveBeenCalled();
-    });
-
-    it("leaves a live post below its comment cap alone", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
-        fakes.livePosts.getCommentCap.mockResolvedValue(100);
-        fakes.posts.get.mockResolvedValue(fullPost("t3_full", 99).post);
-
-        await rotateIfCapReached("t3_full", fakes.ports);
-
-        expect(fakes.posts.get).toHaveBeenCalledExactlyOnceWith("t3_full");
-        expect(fakes.posts.publish).not.toHaveBeenCalled();
-    });
-
-    it("rotates a live post that has reached its comment cap", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
-
-        const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
-        fakes.livePosts.getCommentCap.mockResolvedValue(100);
-        fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
-        fakes.livePosts.get.mockResolvedValue("t3_full");
-        const full = fullPost("t3_full", 100);
-        fakes.posts.get.mockResolvedValue(full.post);
-        fakes.posts.publish.mockResolvedValue(newPost("t3_next").post);
-
-        await rotateIfCapReached("t3_full", fakes.ports);
-
-        expect(logSpy).toHaveBeenNthCalledWith(1, "Post t3_full has reached its comment cap of 100.");
-        expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
-        expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("sticky-thread", "t3_next");
-    });
-
-    it("alerts moderators when the rotation at the comment cap fails", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
-        fakes.livePosts.getCommentCap.mockResolvedValue(100);
-        fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
-        fakes.livePosts.get.mockResolvedValue("t3_full");
-        fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
-        fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
-
-        await expect(rotateIfCapReached("t3_full", fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
-    });
-});
-
-describe(forgetDeletedPost, (): void => {
-    it("forgets a deleted live post and its comment cap", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
-
-        const fakes = createFakeRotationPorts();
-        fakes.livePosts.all.mockResolvedValue({ alpha: "t3_alpha", beta: "t3_beta" });
-
-        await forgetDeletedPost("t3_alpha", fakes.ports.livePosts);
-
-        expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha"], ["t3_alpha"]);
-    });
-
-    it("ignores a deleted post that is not a live post", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
-
-        const fakes = createFakeRotationPorts();
-        fakes.livePosts.all.mockResolvedValue({ beta: "t3_beta" });
-
-        await forgetDeletedPost("t3_other", fakes.ports.livePosts);
-
-        expect(fakes.livePosts.forget).not.toHaveBeenCalled();
     });
 });

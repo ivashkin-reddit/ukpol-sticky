@@ -3,7 +3,8 @@ import type { RotationPorts } from "./ports.js";
 
 export type FailureAlertPorts = Pick<RotationPorts, "notifyModerators" | "refreshFailureAlert">;
 
-function describe(error: unknown): string {
+/** A failure in one line, for alerts and the refresh status. */
+export function describeFailure(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
@@ -14,7 +15,7 @@ async function alertModerators(ports: FailureAlertPorts, error: unknown): Promis
         return;
     }
 
-    const reason = describe(error);
+    const reason = describeFailure(error);
     try {
         await ports.notifyModerators({
             subject: "Sticky Manager could not refresh its threads",
