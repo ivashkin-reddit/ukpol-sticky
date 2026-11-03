@@ -6,25 +6,27 @@ This app is controlled through the subreddit wiki page `stickymgr/config` on the
 
 ## How it works
 
-- Valid wiki updates are stored immediately and an immediate refresh pass is queued.
+- When the app is installed, it writes a commented example to the wiki page, unless the page already has content.
+- Valid wiki updates are stored immediately and an immediate refresh pass is queued. An invalid update gets one modmail; editing other wiki pages does not repeat it.
 - If the `body` changes for an active tracked post, the app edits the live Reddit post body instead of creating a replacement post.
-- Posts with `frequency` and `postTime` rotate when either the next scheduled UTC time is reached or `maxComments` is hit, whichever happens first.
+- Posts with `frequency` and `postTime` rotate when either the next scheduled UTC time is reached or `maxComments` is hit, whichever happens first. A daily post created less than six hours before its next scheduled time (by a comment-cap rotation, say) runs until the scheduled time after.
 - Posts without `frequency` and `postTime` are comment-cap-only and rotate only when `maxComments` is hit.
 - When a post rotates, the app can add an `endNote` comment to the old thread and lock it if `lockOnRefresh` is `true`.
 - If a config is removed or changed to `enabled: false`, the app stops tracking it on the next refresh pass. It does not delete the existing Reddit post automatically.
-- If the app's stored copy of the config ever becomes unreadable, it stops refreshing posts and sends the moderators one modmail. Re-saving the wiki page `stickymgr/config` fixes it.
-- If a refresh fails (for example, Reddit is unavailable while a post is rotating), the moderators get one modmail, "Sticky Manager could not refresh its threads". No further modmail follows until a refresh succeeds. A thread that was rotating may be left without its post until then: the old post unstickied and locked, with no replacement yet.
+- If the app's stored copy of the config ever becomes unreadable, it stops refreshing posts and sends the moderators one modmail. Editing and saving the wiki page `stickymgr/config` (any change will do) fixes it.
+- If a refresh fails (for example, Reddit is unavailable while a post is rotating), the moderators get one modmail, "Sticky Manager could not refresh its threads". No further modmail follows until a refresh succeeds. A thread whose rotation stopped part-way may need checking: its old post may be unstickied but not yet replaced, or its new post not yet stickied and the old one not yet locked. A thread that fails does not hold up the others, and is retried within 15 minutes.
 - Once an hour, at minute 43, the app checks that a refresh is scheduled. If none is, as after a refresh that failed, it runs one, which retries whatever failed.
 
 ## Configuration rules
 
 - `name`, `enabled`, `title`, `maxComments`, and `body` are required.
-- `name` must be unique across the entire wiki page.
+- `name` must be unique across the entire wiki page, 1 to 64 characters long, and not a reserved word such as `toString` or `__proto__`.
 - `maxComments` must be an integer greater than or equal to `1`.
 - `frequency` and `postTime` must either both be set or both be omitted.
 - `postTime` must use `HH:mm` 24-hour format and is always interpreted as UTC.
 - `frequency` must be one of `daily`, `mondays`, `tuesdays`, `wednesdays`, `thursdays`, `fridays`, `saturdays`, or `sundays`.
 - `title` may contain one `{{date ...}}` token using a `date-fns` format string such as `{{date yyyy-MM-dd}}`.
+- Reddit's limits apply: `title` must not be empty and must be at most 300 characters, `body` at most 40,000, and `endNote` at most 10,000.
 - Unknown keys are rejected.
 
 ## Configuration reference
@@ -39,7 +41,7 @@ This app is controlled through the subreddit wiki page `stickymgr/config` on the
 | `sticky`        | No       | boolean | If `true`, the newly created post is stickied after submission. If omitted or `false`, the post is not stickied.                                                                                   |
 | `maxComments`   | Yes      | integer | Rotation threshold. When the live post reaches or exceeds this number of comments, the app creates a replacement post.                                                                             |
 | `body`          | Yes      | string  | Selftext for the post. If the body changes in the wiki page while the post is still active, the app edits the live post body in place.                                                             |
-| `endNote`       | No       | string  | Optional distinguished comment added to the outgoing post immediately before rotation. Useful for pointing readers to the replacement thread.                                                      |
+| `endNote`       | No       | string  | Optional distinguished comment added to the outgoing post once its replacement is published. Useful for pointing readers to the replacement thread.                                                |
 | `lockOnRefresh` | No       | boolean | If `true`, the outgoing post is locked when it is rotated. This happens after the optional `endNote` comment is posted.                                                                            |
 
 ## Date token examples

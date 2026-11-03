@@ -42,7 +42,7 @@ A modular monolith with one bounded context, managed threads, built as ports and
 
 ## Live state
 
-Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
+Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), [redisThreadLocks.ts](src/rotation/adapters/redisThreadLocks.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
 
 ## Config fields
 

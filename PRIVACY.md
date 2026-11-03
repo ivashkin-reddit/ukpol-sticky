@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-04-22
+Last updated: 2026-11-03
 
 This policy applies to the Reddit app published from this repository, including the app shown in Reddit as `ukpol-megabot`.
 
@@ -19,7 +19,7 @@ The app may process:
 - Subreddit name and subreddit ID
 - Managed post IDs, titles, bodies, creation times, and comment counts
 - Post deletion events
-- Small amounts of stored app state such as the last wiki revision, saved config, active tracked post IDs, and stored comment-cap values
+- Small amounts of stored app state such as the last wiki revision, saved config, active managed post IDs, stored comment-cap values, when refreshes last ran and how they ended, short-lived locks that stop two refreshes changing the same thread at once, and whether moderators have already been alerted to a current problem
 
 ## What it uses that data for
 
@@ -29,6 +29,7 @@ The app uses that data to:
 - Schedule refresh jobs
 - Create, update, sticky, unsticky, lock, and rotate managed posts
 - Detect when a thread has hit its comment cap
+- Send the subreddit's moderators modmail when the config is invalid or a refresh fails
 - Clean up stored state when configs or tracked posts change
 
 ## What it does not do
