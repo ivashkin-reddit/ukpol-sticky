@@ -1,4 +1,4 @@
-import { getSchedule, renderTitle } from "../configuration/index.js";
+import { getSchedule, renderEndNote, renderTitle } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import { findRotationReason } from "./domain/rotationRules.js";
 import type { RotationReason } from "./domain/rotationRules.js";
@@ -16,8 +16,11 @@ interface HandoverContext {
     readonly ports: PublishPorts;
 }
 
-/** Distinguishes the new live post and stickies it if its thread config asks, unless Reddit shows either done. */
-async function establishNewPost({ config, handover, ports }: HandoverContext): Promise<void> {
+/**
+ * Distinguishes the new live post and stickies it if its thread config asks, unless Reddit shows either done. Returns
+ * the new post as Reddit shows it.
+ */
+async function establishNewPost({ config, handover, ports }: HandoverContext): Promise<ManagedPost> {
     const post = await ports.posts.get(handover.newPostId);
     if (post.distinguishedBy === undefined) {
         await post.distinguish();
@@ -28,6 +31,7 @@ async function establishNewPost({ config, handover, ports }: HandoverContext): P
     }
 
     await ports.livePosts.storeCommentCap(post.id, config.maxComments);
+    return post;
 }
 
 /** The old post's end note: the one recorded in the handover, or a new one, recorded before it is distinguished. */
@@ -43,12 +47,15 @@ async function getEndNote(post: ManagedPost, endNote: string, context: HandoverC
     return comment;
 }
 
-/** Gives the old post its end note and lock, as its thread config asks, and forgets its comment cap. */
-async function retireOldPost(postId: string, context: HandoverContext): Promise<void> {
+/**
+ * Gives the old post its end note, linking `newPost` where it asks, and its lock, as its thread config asks, and
+ * forgets its comment cap.
+ */
+async function retireOldPost(postId: string, newPost: ManagedPost, context: HandoverContext): Promise<void> {
     const { config, ports } = context;
     const post = await ports.posts.get(postId);
     if (config.endNote != null && config.endNote !== "") {
-        const endNote = await getEndNote(post, config.endNote, context);
+        const endNote = await getEndNote(post, renderEndNote(config.endNote, newPost), context);
         await endNote.distinguish(true);
     }
 
@@ -70,9 +77,9 @@ async function finishHandover(context: HandoverContext): Promise<void> {
     const { config, handover, ports } = context;
     // Again on a retry, in case the rotation stopped between recording the handover and the live post.
     await ports.livePosts.set(config.name, handover.newPostId);
-    await establishNewPost(context);
+    const newPost = await establishNewPost(context);
     if (handover.oldPostId !== undefined) {
-        await retireOldPost(handover.oldPostId, context);
+        await retireOldPost(handover.oldPostId, newPost, context);
     }
 
     await ports.livePosts.forgetHandover(config.name);

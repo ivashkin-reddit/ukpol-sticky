@@ -6,6 +6,7 @@ export { applyConfigPageRevision } from "./configPageRevision.js";
 export type { ConfigPageOutcome } from "./configPageRevision.js";
 export { getSchedule } from "./domain/threadConfig.js";
 export type { Schedule, ThreadConfig } from "./domain/threadConfig.js";
+export { renderEndNote } from "./domain/endNoteTemplate.js";
 export { renderTitle } from "./domain/titleTemplate.js";
 export { UnreadableConfigError } from "./ports.js";
 export type { ConfigPage, ConfigPageRevision, ConfigReadPorts, ConfigStore, ConfigurationPorts } from "./ports.js";

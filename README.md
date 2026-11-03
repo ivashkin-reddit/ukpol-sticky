@@ -50,18 +50,18 @@ The config page uses YAML. Each thread is a separate document, and documents are
 
 ### Reference
 
-| Option          | Required | Type    | Description                                                                                                                                     |
-| --------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`          | Yes      | string  | Identifies the thread. Keep it stable once the thread is live: a new name makes the app treat it as a different thread.                         |
-| `enabled`       | Yes      | boolean | Whether the app manages this thread. When `false`, the app stops managing it and leaves its last post as it is.                                 |
-| `title`         | Yes      | string  | Title for each new post. May contain one date token. A change takes effect at the next rotation.                                                |
-| `frequency`     | No       | string  | `daily`, or a weekday such as `wednesdays` for one post a week. Omit it together with `postTime` for a thread replaced only at its comment cap. |
-| `postTime`      | No       | string  | Scheduled rotation time, `HH:mm` in UTC. Only valid with `frequency`.                                                                           |
-| `sticky`        | No       | boolean | When `true`, each new post is stickied. Defaults to `false`.                                                                                    |
-| `maxComments`   | Yes      | integer | The comment cap: when the live post reaches this many comments, it is replaced.                                                                 |
-| `body`          | Yes      | string  | Text of each post. A change is applied to the live post in place.                                                                               |
-| `endNote`       | No       | string  | A distinguished comment, pinned to the outgoing post once its replacement is published. Useful for pointing readers to the new thread.          |
-| `lockOnRefresh` | No       | boolean | When `true`, the outgoing post is locked after its end note is added.                                                                           |
+| Option          | Required | Type    | Description                                                                                                                                                           |
+| --------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | Yes      | string  | Identifies the thread. Keep it stable once the thread is live: a new name makes the app treat it as a different thread.                                               |
+| `enabled`       | Yes      | boolean | Whether the app manages this thread. When `false`, the app stops managing it and leaves its last post as it is.                                                       |
+| `title`         | Yes      | string  | Title for each new post. May contain one date token. A change takes effect at the next rotation.                                                                      |
+| `frequency`     | No       | string  | `daily`, or a weekday such as `wednesdays` for one post a week. Omit it together with `postTime` for a thread replaced only at its comment cap.                       |
+| `postTime`      | No       | string  | Scheduled rotation time, `HH:mm` in UTC. Only valid with `frequency`.                                                                                                 |
+| `sticky`        | No       | boolean | When `true`, each new post is stickied. Defaults to `false`.                                                                                                          |
+| `maxComments`   | Yes      | integer | The comment cap: when the live post reaches this many comments, it is replaced.                                                                                       |
+| `body`          | Yes      | string  | Text of each post. A change is applied to the live post in place.                                                                                                     |
+| `endNote`       | No       | string  | A distinguished comment, pinned to the outgoing post once its replacement is published. `{{new post}}` in it becomes a link to the new thread, titled with its title. |
+| `lockOnRefresh` | No       | boolean | When `true`, the outgoing post is locked after its end note is added.                                                                                                 |
 
 Use YAML block scalars such as `|` for `body` and `endNote` to keep paragraphs and line breaks.
 
@@ -92,7 +92,7 @@ body: |
 
     Use this post to discuss all aspects of politics in the UK.
 endNote: |
-    This thread is now closed. Please use the latest sticky megathread.
+    This thread is now closed. Please continue in {{new post}}.
 lockOnRefresh: true
 ```
 

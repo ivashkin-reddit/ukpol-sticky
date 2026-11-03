@@ -18,7 +18,7 @@ export interface FakePost {
 export type FakePostFields = Readonly<
     Pick<ManagedPost, "body" | "createdAt" | "id" | "numberOfComments" | "stickied">
 > &
-    Readonly<Partial<Pick<ManagedPost, "distinguishedBy" | "locked">>>;
+    Readonly<Partial<Pick<ManagedPost, "distinguishedBy" | "locked" | "permalink" | "title">>>;
 
 interface ModerationState {
     distinguishedBy: string | undefined;
@@ -70,7 +70,8 @@ function createModeration(
 
 /**
  * A ManagedPost whose actions are typed mocks. Distinguishing, locking and (un)stickying it change what it then reads
- * as, as on Reddit; a comment added to it resolves to `comment`, whose distinguish is its own mock.
+ * as, as on Reddit; a comment added to it resolves to `comment`, whose distinguish is its own mock. Its title and
+ * permalink default to ones derived from its ID.
  */
 export function createFakePost(fields: FakePostFields): FakePost {
     const moderation = createModeration(fields);
@@ -85,6 +86,8 @@ export function createFakePost(fields: FakePostFields): FakePost {
             createdAt: fields.createdAt,
             id: fields.id,
             numberOfComments: fields.numberOfComments,
+            permalink: fields.permalink ?? `/r/testsub/comments/${fields.id.replace("t3_", "")}/`,
+            title: fields.title ?? `Post ${fields.id}`,
             get distinguishedBy(): string | undefined {
                 return moderation.read().distinguishedBy;
             },
