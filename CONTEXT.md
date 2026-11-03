@@ -65,7 +65,7 @@ The thread configs the last refresh applied. While the thread configs in force d
 _Avoid_: dirty flag, pending changes
 
 **Refresh check**:
-The hourly check that a refresh is pending and on time, and that the config page's latest revision has been applied. It requests a refresh when none will run, as after a refresh that failed or a scheduled one that never ran, and applies a revision nothing applied.
+The hourly check that a refresh is pending and on time, and that the config page's latest revision has been applied. It requests a refresh when none will run, as after a refresh that failed or a scheduled one that never ran, or when thread configs differ from the applied thread configs and no refresh is due at once. It applies a revision nothing applied.
 _Avoid_: safety net, heartbeat, cron job
 
 **Refresh status**:

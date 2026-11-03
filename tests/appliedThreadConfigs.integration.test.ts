@@ -5,7 +5,7 @@ import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
 import type { ThreadConfig } from "../src/configuration/index.js";
-import { refreshAllThreads, requestRefresh, scheduleNextRefresh } from "../src/rotation/index.js";
+import { ensureRefreshPending, refreshAllThreads, requestRefresh, scheduleNextRefresh } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -29,6 +29,10 @@ const EDITED_CONFIG: ThreadConfig = { ...DAILY_CONFIG, body: "Edited body" };
 
 async function refreshJobTimes(): Promise<string[]> {
     return (await listRefreshJobs()).map((job: Readonly<{ runAt: Date }>): string => job.runAt.toISOString());
+}
+
+async function refreshJobIds(): Promise<string[]> {
+    return (await listRefreshJobs()).map((job: Readonly<{ id: string }>): string => job.id);
 }
 
 /**
@@ -98,4 +102,42 @@ describe("thread configs stored since the last refresh", (): void => {
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:05.000Z"]);
         },
     );
+});
+
+describe("the refresh check, with thread configs stored since the last refresh", (): void => {
+    devvitIt(
+        "requests a refresh when the one their save requested was never scheduled",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            await refreshedDailyThread();
+            const errorSpy = silenceConsole("error");
+            // A save stored them, but its request for a refresh failed, leaving the 12:30 rotation as the only refresh.
+            await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
+            vi.setSystemTime(new Date("2026-04-21T10:43:00Z"));
+
+            await ensureRefreshPending(rotationPorts(HARNESS_CONTEXT));
+
+            await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:43:01.000Z"]);
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+                "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
+            );
+        },
+    );
+
+    devvitIt("leaves alone the refresh their save requested", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        await refreshedDailyThread();
+        await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
+        await requestRefresh(rotationPorts(HARNESS_CONTEXT));
+        const pendingIds = await refreshJobIds();
+        // The check runs before Devvit has run the requested refresh.
+        vi.setSystemTime(new Date("2026-04-21T10:00:30Z"));
+
+        await ensureRefreshPending(rotationPorts(HARNESS_CONTEXT));
+
+        await expect(refreshJobIds()).resolves.toStrictEqual(pendingIds);
+    });
 });
