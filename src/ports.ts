@@ -12,6 +12,6 @@ export type SubredditNamePort = Readonly<{
     subredditName?: string | undefined;
 }>;
 
-export async function getSubredditName (context: SubredditNamePort): Promise<string> {
-    return context.subredditName ?? await context.reddit.getCurrentSubredditName();
+export async function getSubredditName(context: SubredditNamePort): Promise<string> {
+    return context.subredditName ?? (await context.reddit.getCurrentSubredditName());
 }

@@ -3,12 +3,17 @@ import { createFakePost, createFakeStickyContext } from "../tests/support/fakeSt
 import type { FakeStickyContext } from "../tests/support/fakeStickyContext.js";
 import { handleCommentCreate } from "./handleCommentCreate.js";
 import type { CommentCreateContext, CommentCreateEvent } from "./handleCommentCreate.js";
-import { getCommentCap, refreshPostFromPostId } from "./stickyManager.js";
+import { refreshPostFromPostId } from "./stickyManager.js";
 import type * as StickyManager from "./stickyManager.js";
+import { getCommentCap } from "./trackedPosts.js";
+import type * as TrackedPosts from "./trackedPosts.js";
 
 vi.mock(import("./stickyManager.js"), (): Partial<typeof StickyManager> => ({
-    getCommentCap: vi.fn<typeof getCommentCap>(),
     refreshPostFromPostId: vi.fn<typeof refreshPostFromPostId>(),
+}));
+
+vi.mock(import("./trackedPosts.js"), (): Partial<typeof TrackedPosts> => ({
+    getCommentCap: vi.fn<typeof getCommentCap>(),
 }));
 
 const TEST_OPTIONS = { timeout: 1000 };
@@ -19,27 +24,37 @@ interface CommentFakes {
     readonly sticky: FakeStickyContext;
 }
 
-function createCommentFakes (): CommentFakes {
+function createCommentFakes(): CommentFakes {
     const sticky = createFakeStickyContext();
     return { context: { ...sticky.context, appSlug: APP_SLUG }, sticky };
 }
 
-function postWithComments (numberOfComments: number): ReturnType<typeof createFakePost> {
-    return createFakePost({ body: "Body", createdAt: new Date("2026-04-21T10:00:00Z"), id: "t3_alpha", numberOfComments, stickied: true });
+function postWithComments(numberOfComments: number): ReturnType<typeof createFakePost> {
+    return createFakePost({
+        body: "Body",
+        createdAt: new Date("2026-04-21T10:00:00Z"),
+        id: "t3_alpha",
+        numberOfComments,
+        stickied: true,
+    });
 }
 
 describe(handleCommentCreate, (): void => {
-    it.for<CommentCreateEvent>([{}, { post: { id: "" } }])("logs and stops when the event has no post id (%j)", TEST_OPTIONS, async (event: CommentCreateEvent): Promise<void> => {
-        expect.assertions(3);
+    it.for<CommentCreateEvent>([{}, { post: { id: "" } }])(
+        "logs and stops when the event has no post id (%j)",
+        TEST_OPTIONS,
+        async (event: CommentCreateEvent): Promise<void> => {
+            expect.assertions(3);
 
-        const errorSpy = vi.spyOn(console, "error").mockImplementation((): undefined => undefined);
-        const fakes = createCommentFakes();
-        await handleCommentCreate(event, fakes.context);
+            const errorSpy = vi.spyOn(console, "error").mockImplementation((): undefined => undefined);
+            const fakes = createCommentFakes();
+            await handleCommentCreate(event, fakes.context);
 
-        expect(errorSpy).toHaveBeenCalledExactlyOnceWith("CommentCreate event does not contain a post ID.");
-        expect(vi.mocked(getCommentCap)).not.toHaveBeenCalled();
-        expect(fakes.sticky.reddit.getPostById).not.toHaveBeenCalled();
-    });
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith("CommentCreate event does not contain a post ID.");
+            expect(vi.mocked(getCommentCap)).not.toHaveBeenCalled();
+            expect(fakes.sticky.reddit.getPostById).not.toHaveBeenCalled();
+        },
+    );
 
     it("ignores the app's own comments", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);

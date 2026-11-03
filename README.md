@@ -27,18 +27,18 @@ This app is controlled through the subreddit wiki page `stickymgr/config` on the
 
 ## Configuration reference
 
-| Option | Required | Type | Description |
-| --- | --- | --- | --- |
-| `name` | Yes | string | Internal unique identifier for the config. Keep it stable once a thread is live. Changing it makes the app treat the config as a different managed post. |
-| `enabled` | Yes | boolean | Turns the config on or off. If `false`, the config stays in the wiki page but the app stops managing it on the next refresh pass. Existing Reddit posts are left alone. |
-| `title` | Yes | string | Title used when a new post is created. It can include one `{{date ...}}` token. Changing `title` does not retitle an already-live post; the new title is used the next time the post rotates. |
-| `frequency` | No | string | Schedule cadence for timed posts. Use `daily` for every day, or a weekday value such as `wednesdays` for weekly rotation on that day. Omit it together with `postTime` for comment-cap-only posts. |
-| `postTime` | No | string | Scheduled UTC time for rotation in `HH:mm` format. Only valid when `frequency` is also set. |
-| `sticky` | No | boolean | If `true`, the newly created post is stickied after submission. If omitted or `false`, the post is not stickied. |
-| `maxComments` | Yes | integer | Rotation threshold. When the live post reaches or exceeds this number of comments, the app creates a replacement post. |
-| `body` | Yes | string | Selftext for the post. If the body changes in the wiki page while the post is still active, the app edits the live post body in place. |
-| `endNote` | No | string | Optional distinguished comment added to the outgoing post immediately before rotation. Useful for pointing readers to the replacement thread. |
-| `lockOnRefresh` | No | boolean | If `true`, the outgoing post is locked when it is rotated. This happens after the optional `endNote` comment is posted. |
+| Option          | Required | Type    | Description                                                                                                                                                                                        |
+| --------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | Yes      | string  | Internal unique identifier for the config. Keep it stable once a thread is live. Changing it makes the app treat the config as a different managed post.                                           |
+| `enabled`       | Yes      | boolean | Turns the config on or off. If `false`, the config stays in the wiki page but the app stops managing it on the next refresh pass. Existing Reddit posts are left alone.                            |
+| `title`         | Yes      | string  | Title used when a new post is created. It can include one `{{date ...}}` token. Changing `title` does not retitle an already-live post; the new title is used the next time the post rotates.      |
+| `frequency`     | No       | string  | Schedule cadence for timed posts. Use `daily` for every day, or a weekday value such as `wednesdays` for weekly rotation on that day. Omit it together with `postTime` for comment-cap-only posts. |
+| `postTime`      | No       | string  | Scheduled UTC time for rotation in `HH:mm` format. Only valid when `frequency` is also set.                                                                                                        |
+| `sticky`        | No       | boolean | If `true`, the newly created post is stickied after submission. If omitted or `false`, the post is not stickied.                                                                                   |
+| `maxComments`   | Yes      | integer | Rotation threshold. When the live post reaches or exceeds this number of comments, the app creates a replacement post.                                                                             |
+| `body`          | Yes      | string  | Selftext for the post. If the body changes in the wiki page while the post is still active, the app edits the live post body in place.                                                             |
+| `endNote`       | No       | string  | Optional distinguished comment added to the outgoing post immediately before rotation. Useful for pointing readers to the replacement thread.                                                      |
+| `lockOnRefresh` | No       | boolean | If `true`, the outgoing post is locked when it is rotated. This happens after the optional `endNote` comment is posted.                                                                            |
 
 ## Date token examples
 

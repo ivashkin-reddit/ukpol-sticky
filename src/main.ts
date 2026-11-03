@@ -4,7 +4,8 @@ import { Devvit } from "@devvit/public-api";
 import { REFRESH_STICKY_POSTS_JOB } from "./constants.js";
 import { handleCommentCreate } from "./handleCommentCreate.js";
 import { handleAppInstall, handleAppUpgrade } from "./installTasks.js";
-import { handlePostDelete, refreshStickyPosts } from "./stickyManager.js";
+import { refreshStickyPosts } from "./stickyManager.js";
+import { handlePostDelete } from "./trackedPosts.js";
 import { handleWikiUpdate } from "./wikiConfig.js";
 
 Devvit.addTrigger({

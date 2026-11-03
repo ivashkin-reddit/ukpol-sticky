@@ -8,7 +8,7 @@ export interface DateToken {
     readonly dateFormat: string;
 }
 
-export function findDateToken (title: string): DateToken | undefined {
+export function findDateToken(title: string): DateToken | undefined {
     const match = DATE_TOKEN.exec(title);
     const dateFormat = match?.groups?.["dateFormat"];
     if (match === null || dateFormat === undefined) {
@@ -18,7 +18,7 @@ export function findDateToken (title: string): DateToken | undefined {
     return { text: match[0], dateFormat };
 }
 
-export function renderTitle (title: string, now: Date): string {
+export function renderTitle(title: string, now: Date): string {
     const token = findDateToken(title);
     if (token === undefined) {
         return title;

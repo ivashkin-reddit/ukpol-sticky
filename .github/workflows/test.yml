@@ -11,9 +11,10 @@ jobs:
       - name: use node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '26.x'
+          node-version: "26.x"
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test
       - run: npm run test:integration
       - run: npm run lint
+      - run: npm run format:check

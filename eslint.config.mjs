@@ -1,14 +1,12 @@
 import eslint from "@eslint/js";
 import { recommended as eslintCommentsRecommended } from "@eslint-community/eslint-plugin-eslint-comments/configs";
-import stylistic from "@stylistic/eslint-plugin";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
+import prettierCompatible from "eslint-config-prettier/flat";
 import { createTypeScriptImportResolver } from "eslint-import-resolver-typescript";
 import { importX } from "eslint-plugin-import-x";
 import { configs as regexpConfigs } from "eslint-plugin-regexp";
 import { configs as typescriptEslintConfigs } from "typescript-eslint";
-
-const INDENT_WIDTH = 4;
 
 // vitest.configs.all sets every rule to "warn"; here every vitest rule is an error.
 /** @type {Record<string, "error">} */
@@ -37,13 +35,6 @@ export default defineConfig(
     importX.flatConfigs.typescript,
     regexpConfigs.all,
     eslintCommentsRecommended,
-    stylistic.configs.customize({
-        indent: INDENT_WIDTH,
-        quotes: "double",
-        semi: true,
-        quoteProps: "consistent-as-needed",
-        braceStyle: "1tbs",
-    }),
 
     {
         languageOptions: {
@@ -103,69 +94,112 @@ export default defineConfig(
             "regexp/require-unicode-sets-regexp": "off",
 
             // typescript-eslint, stricter options.
-            "@typescript-eslint/strict-boolean-expressions": ["error", {
-                allowAny: false,
-                allowNullableBoolean: false,
-                allowNullableEnum: false,
-                allowNullableNumber: false,
-                allowNullableObject: false,
-                allowNullableString: false,
-                allowNumber: false,
-                allowString: false,
-            }],
-            "@typescript-eslint/switch-exhaustiveness-check": ["error", {
-                allowDefaultCaseForExhaustiveSwitch: false,
-                considerDefaultExhaustiveForUnions: false,
-                requireDefaultForNonUnion: true,
-            }],
-            "@typescript-eslint/explicit-function-return-type": ["error", {
-                allowConciseArrowFunctionExpressionsStartingWithVoid: false,
-                allowDirectConstAssertionInArrowFunctions: false,
-                allowExpressions: false,
-                allowFunctionsWithoutTypeParameters: false,
-                allowHigherOrderFunctions: false,
-                allowIIFEs: false,
-                allowTypedFunctionExpressions: false,
-            }],
-            "@typescript-eslint/consistent-type-imports": ["error", {
-                disallowTypeAnnotations: true,
-                fixStyle: "separate-type-imports",
-                prefer: "type-imports",
-            }],
-            "@typescript-eslint/naming-convention": ["error",
+            "@typescript-eslint/strict-boolean-expressions": [
+                "error",
+                {
+                    allowAny: false,
+                    allowNullableBoolean: false,
+                    allowNullableEnum: false,
+                    allowNullableNumber: false,
+                    allowNullableObject: false,
+                    allowNullableString: false,
+                    allowNumber: false,
+                    allowString: false,
+                },
+            ],
+            "@typescript-eslint/switch-exhaustiveness-check": [
+                "error",
+                {
+                    allowDefaultCaseForExhaustiveSwitch: false,
+                    considerDefaultExhaustiveForUnions: false,
+                    requireDefaultForNonUnion: true,
+                },
+            ],
+            "@typescript-eslint/explicit-function-return-type": [
+                "error",
+                {
+                    allowConciseArrowFunctionExpressionsStartingWithVoid: false,
+                    allowDirectConstAssertionInArrowFunctions: false,
+                    allowExpressions: false,
+                    allowFunctionsWithoutTypeParameters: false,
+                    allowHigherOrderFunctions: false,
+                    allowIIFEs: false,
+                    allowTypedFunctionExpressions: false,
+                },
+            ],
+            "@typescript-eslint/consistent-type-imports": [
+                "error",
+                {
+                    disallowTypeAnnotations: true,
+                    fixStyle: "separate-type-imports",
+                    prefer: "type-imports",
+                },
+            ],
+            "@typescript-eslint/naming-convention": [
+                "error",
                 { selector: "default", format: ["camelCase"], leadingUnderscore: "allow", trailingUnderscore: "allow" },
                 { selector: "import", format: ["camelCase", "PascalCase"] },
-                { selector: "variable", format: ["camelCase", "UPPER_CASE"], leadingUnderscore: "allow", trailingUnderscore: "allow" },
+                {
+                    selector: "variable",
+                    format: ["camelCase", "UPPER_CASE"],
+                    leadingUnderscore: "allow",
+                    trailingUnderscore: "allow",
+                },
                 { selector: "typeLike", format: ["PascalCase"] },
                 // Quoted keys are data (Redis field names, ESLint rule names), not identifiers (per the rule's docs).
-                { selector: ["objectLiteralProperty", "objectLiteralMethod"], modifiers: ["requiresQuotes"], format: null }],
+                {
+                    selector: ["objectLiteralProperty", "objectLiteralMethod"],
+                    modifiers: ["requiresQuotes"],
+                    format: null,
+                },
+            ],
             "@typescript-eslint/return-await": ["error", "always"],
-            "@typescript-eslint/no-floating-promises": ["error", { checkThenables: true, ignoreIIFE: false, ignoreVoid: false }],
-            "@typescript-eslint/no-unnecessary-condition": ["error", { allowConstantLoopConditions: "never", checkTypePredicates: true }],
+            "@typescript-eslint/no-floating-promises": [
+                "error",
+                { checkThenables: true, ignoreIIFE: false, ignoreVoid: false },
+            ],
+            "@typescript-eslint/no-unnecessary-condition": [
+                "error",
+                { allowConstantLoopConditions: "never", checkTypePredicates: true },
+            ],
             "@typescript-eslint/require-array-sort-compare": ["error", { ignoreStringArrays: false }],
-            "@typescript-eslint/no-shadow": ["error", { builtinGlobals: true, hoist: "all", ignoreFunctionTypeParameterNameValueShadow: false, ignoreTypeValueShadow: false }],
+            "@typescript-eslint/no-shadow": [
+                "error",
+                {
+                    builtinGlobals: true,
+                    hoist: "all",
+                    ignoreFunctionTypeParameterNameValueShadow: false,
+                    ignoreTypeValueShadow: false,
+                },
+            ],
             // -1, 0 and 1 are comparator results, offsets and emptiness checks, not domain values.
-            "@typescript-eslint/no-magic-numbers": ["error", {
-                detectObjects: true,
-                enforceConst: true,
-                ignore: [-1, 0, 1],
-                ignoreArrayIndexes: false,
-                ignoreEnums: false,
-                ignoreNumericLiteralTypes: false,
-                ignoreReadonlyClassProperties: false,
-                ignoreTypeIndexes: false,
-            }],
-            "@typescript-eslint/prefer-readonly-parameter-types": ["error", {
-                // WORKAROUND: Date parameters count as readonly
-                //   cause: Date is a mutable built-in (setHours and friends), so no Date parameter can be deeply readonly.
-                //   blocked: the immutable replacement, Temporal, is not in Devvit's ES2020 runtime or its TypeScript lib.
-                //   fix: carry instants as Temporal.Instant instead of Date.
-                //   until: Devvit's runtime and tsconfig lib include Temporal.
-                allow: [{ from: "lib", name: "Date" }],
-                checkParameterProperties: true,
-                ignoreInferredTypes: false,
-                treatMethodsAsReadonly: false,
-            }],
+            "@typescript-eslint/no-magic-numbers": [
+                "error",
+                {
+                    detectObjects: true,
+                    enforceConst: true,
+                    ignore: [-1, 0, 1],
+                    ignoreArrayIndexes: false,
+                    ignoreEnums: false,
+                    ignoreNumericLiteralTypes: false,
+                    ignoreReadonlyClassProperties: false,
+                    ignoreTypeIndexes: false,
+                },
+            ],
+            "@typescript-eslint/prefer-readonly-parameter-types": [
+                "error",
+                {
+                    // WORKAROUND: Date parameters count as readonly
+                    //   cause: Date is a mutable built-in (setHours and friends), so no Date parameter can be deeply readonly.
+                    //   blocked: the immutable replacement, Temporal, is not in Devvit's ES2020 runtime or its TypeScript lib.
+                    //   fix: carry instants as Temporal.Instant instead of Date.
+                    //   until: Devvit's runtime and tsconfig lib include Temporal.
+                    allow: [{ from: "lib", name: "Date" }],
+                    checkParameterProperties: true,
+                    ignoreInferredTypes: false,
+                    treatMethodsAsReadonly: false,
+                },
+            ],
 
             // Every suppression is a single next-line directive with a written reason.
             "@eslint-community/eslint-comments/require-description": ["error", { ignore: [] }],
@@ -176,11 +210,14 @@ export default defineConfig(
             "import-x/no-duplicates": "error",
             "import-x/no-named-as-default": "error",
             "import-x/no-named-as-default-member": "error",
-            "import-x/no-extraneous-dependencies": ["error", {
-                devDependencies: ["**/*.test.ts", "tests/**", "vitest.config.ts", "eslint.config.mjs"],
-                includeInternal: true,
-                includeTypes: true,
-            }],
+            "import-x/no-extraneous-dependencies": [
+                "error",
+                {
+                    devDependencies: ["**/*.test.ts", "tests/**", "vitest.config.ts", "eslint.config.mjs"],
+                    includeInternal: true,
+                    includeTypes: true,
+                },
+            ],
             "import-x/no-cycle": "error",
             "import-x/no-self-import": "error",
             "import-x/no-useless-path-segments": "error",
@@ -194,17 +231,6 @@ export default defineConfig(
             "import-x/first": "error",
             "import-x/newline-after-import": "error",
             "import-x/order": ["error", { "alphabetize": { order: "asc" }, "newlines-between": "never" }],
-
-            // Formatting beyond the stylistic preset.
-            "@stylistic/array-bracket-newline": ["error", "consistent"],
-            "@stylistic/array-element-newline": ["error", "consistent"],
-            "@stylistic/function-call-spacing": ["error", "never"],
-            "@stylistic/function-paren-newline": ["error", "multiline"],
-            "@stylistic/implicit-arrow-linebreak": ["error", "beside"],
-            "@stylistic/object-curly-newline": ["error", { multiline: true, consistent: true }],
-            "@stylistic/object-property-newline": ["error", { allowAllPropertiesOnSameLine: true }],
-            "@stylistic/semi-style": ["error", "last"],
-            "@stylistic/space-before-function-paren": ["error", "always"],
         },
     },
 
@@ -251,10 +277,24 @@ export default defineConfig(
         files: ["vitest.config.ts"],
         rules: {
             // Environment variable names (`TZ`) are UPPER_CASE by convention.
-            "@typescript-eslint/naming-convention": ["error",
+            "@typescript-eslint/naming-convention": [
+                "error",
                 { selector: "default", format: ["camelCase"] },
                 { selector: "import", format: ["camelCase", "PascalCase"] },
-                { selector: "objectLiteralProperty", format: ["camelCase", "UPPER_CASE"] }],
+                { selector: "objectLiteralProperty", format: ["camelCase", "UPPER_CASE"] },
+            ],
+        },
+    },
+
+    // Prettier owns formatting (npm run format); this turns off every rule that would disagree with its output.
+    prettierCompatible,
+    {
+        rules: {
+            // eslint-config-prettier switches off two "special rules" that stay compatible with Prettier as used here:
+            // curly "all" never conflicts (only its "multi-line" and "multi-or-nest" options do), and
+            // no-unexpected-multiline catches automatic-semicolon-insertion hazards.
+            "curly": ["error", "all"],
+            "no-unexpected-multiline": "error",
         },
     },
 );

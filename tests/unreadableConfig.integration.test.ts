@@ -15,7 +15,7 @@ const EXPECTED_ALERT = {
     bodyMarkdown: [
         "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
         "Re-save the wiki page stickymgr/config to store a fresh copy.",
-        "Details: Stored configuration (Redis key \"Configuration\") is invalid: data must be array",
+        'Details: Stored configuration (Redis key "Configuration") is invalid: data must be array',
     ].join("\n\n"),
 };
 
@@ -25,28 +25,35 @@ interface AlertingContext {
 }
 
 /** The harness's real Redis, with modmail captured by a mock. */
-async function storeUnreadableConfig (): Promise<AlertingContext> {
+async function storeUnreadableConfig(): Promise<AlertingContext> {
     const createModInboxConversation = vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id");
     await redis.set("Configuration", "{}");
-    return { context: { redis, reddit: { modMail: { createModInboxConversation } }, subredditId: TEST_SUBREDDIT_ID }, createModInboxConversation };
+    return {
+        context: { redis, reddit: { modMail: { createModInboxConversation } }, subredditId: TEST_SUBREDDIT_ID },
+        createModInboxConversation,
+    };
 }
 
 describe("an unreadable stored config", (): void => {
-    devvitIt("alerts moderators once, and again after a fresh config was stored and then broke", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(5);
+    devvitIt(
+        "alerts moderators once, and again after a fresh config was stored and then broke",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(5);
 
-        const { context, createModInboxConversation } = await storeUnreadableConfig();
+            const { context, createModInboxConversation } = await storeUnreadableConfig();
 
-        await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
-        await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
-        expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
+            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
 
-        await storeConfig(context, []);
-        await redis.set("Configuration", "{}");
+            await storeConfig(context, []);
+            await redis.set("Configuration", "{}");
 
-        await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
-        expect(createModInboxConversation).toHaveBeenNthCalledWith(2, EXPECTED_ALERT);
-    });
+            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            expect(createModInboxConversation).toHaveBeenNthCalledWith(2, EXPECTED_ALERT);
+        },
+    );
 
     devvitIt("sends one alert when two reads fail at the same time", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -55,7 +62,9 @@ describe("an unreadable stored config", (): void => {
 
         const outcomes = await Promise.allSettled([getConfig(context), getConfig(context)]);
 
-        expect(outcomes.map((outcome: Readonly<PromiseSettledResult<unknown>>): string => outcome.status)).toStrictEqual(["rejected", "rejected"]);
+        expect(
+            outcomes.map((outcome: Readonly<PromiseSettledResult<unknown>>): string => outcome.status),
+        ).toStrictEqual(["rejected", "rejected"]);
         expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
     });
 });

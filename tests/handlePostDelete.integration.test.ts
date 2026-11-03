@@ -1,6 +1,6 @@
 import { redis } from "@devvit/redis";
 import { describe, expect } from "vitest";
-import { handlePostDelete } from "../src/stickyManager.js";
+import { handlePostDelete } from "../src/trackedPosts.js";
 import { HARNESS_CONTEXT } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 
@@ -8,19 +8,23 @@ import { it as devvitIt } from "./support/devvitTest.js";
 const TEST_OPTIONS = { timeout: 5000 };
 
 describe(handlePostDelete, (): void => {
-    devvitIt("forgets a deleted tracked post and its comment cap, keeping the others", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
+    devvitIt(
+        "forgets a deleted tracked post and its comment cap, keeping the others",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        await redis.hSet("StickyPostStore", { alpha: "t3_alpha", beta: "t3_beta" });
-        await redis.set("CommentCap:t3_alpha", "150");
-        await redis.set("CommentCap:t3_beta", "250");
+            await redis.hSet("StickyPostStore", { alpha: "t3_alpha", beta: "t3_beta" });
+            await redis.set("CommentCap:t3_alpha", "150");
+            await redis.set("CommentCap:t3_beta", "250");
 
-        await handlePostDelete({ postId: "t3_alpha" }, HARNESS_CONTEXT);
+            await handlePostDelete({ postId: "t3_alpha" }, HARNESS_CONTEXT);
 
-        await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
-        await expect(redis.get("CommentCap:t3_alpha")).resolves.toBeUndefined();
-        await expect(redis.get("CommentCap:t3_beta")).resolves.toBe("250");
-    });
+            await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
+            await expect(redis.get("CommentCap:t3_alpha")).resolves.toBeUndefined();
+            await expect(redis.get("CommentCap:t3_beta")).resolves.toBe("250");
+        },
+    );
 
     devvitIt("ignores a deleted post that is not tracked", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
