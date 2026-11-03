@@ -18,7 +18,7 @@ Behaviour on Reddit itself is only verifiable with `npx devvit playtest`, which 
 
 ## Architecture
 
-A modular monolith with one bounded context, managed threads, built as ports and adapters. [ADR 0001](docs/adr/0001-modular-monolith-with-capability-modules.md) and [ADR 0002](docs/adr/0002-module-owned-ports-wired-at-the-composition-root.md) record why, and [CONTEXT.md](CONTEXT.md) is the glossary. Name code, logs and modmail with its terms.
+A modular monolith with one bounded context, managed threads, built as ports and adapters. [CONTEXT.md](CONTEXT.md) is the glossary. Name code, logs and modmail with its terms.
 
 - The modules under `src/`, in dependency order, are `notifications`, `configuration` and `rotation`. Each imports only modules before it, and only through their `index.ts`; that file's header comment says what the module owns.
 - Inside a module, dependencies point inward:
@@ -31,6 +31,12 @@ A modular monolith with one bounded context, managed threads, built as ports and
 - Planned features already have places:
     - Slack is a second adapter for `NotifyModerators`, chosen in `composition.ts`.
     - A mod UI is a set of handlers at the edge that call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail, and whether refreshes are running from `getRefreshStatus`.
+
+These choices are deliberate. Revisit one only when the user asks:
+
+- **One context.** `configuration` and `rotation` are modules of one context, not two: a thread config's schedule and comment cap mean the same to both, so a translation between them would map each term onto itself. Configuration becomes its own context, with a translation at its interface, only once something edits thread configs in a shape rotation does not share.
+- **Ports with one adapter.** Each port has a single adapter, and the ports still earn their place. They keep storage layouts and Devvit's API out of use cases and their tests, and they confine the move to `@devvit/web` to adapters and wiring.
+- **Rules stay with their capability.** Rotation rules live in `rotation/domain/` and config checks in `configuration/domain/`. A domain module shared by both would take each rule away from the module that owns it.
 
 ## Logs
 
@@ -55,7 +61,7 @@ A key left empty in YAML parses as null, and ajv admits null for every optional 
 - Prettier owns formatting: `npm run format` writes it, CI runs `npm run format:check`. ESLint carries no formatting rules (eslint-config-prettier), and [.gitattributes](.gitattributes) keeps LF line endings so the check also passes on Windows checkouts.
 - [eslint.config.mjs](eslint.config.mjs) starts from every rule (ESLint `all`, typescript-eslint `all` plus its strict and stylistic typed presets, import-x, regexp, eslint-comments, vitest `all`); the files in [eslint/](eslint) tighten them by concern and turn a rule off only with its reason beside it. A dependency upgrade can add rules; fix their findings as part of the upgrade.
 - Every suppression or workaround carries a `WORKAROUND:` block (`cause`, `blocked`, `fix`, `until`) directly above it (in `package.json`, which has no comments, in a `"//"` key beside it); `grep -rn "WORKAROUND:" --exclude-dir=node_modules .` is the ledger. The only allowed directive is `eslint-disable-next-line` with a `--` reason.
-- Adapters take narrow context types ([src/platform/index.ts](src/platform/index.ts) and the `*Context` types beside each adapter) that name only the Devvit methods they call, and Devvit's real context satisfies them. Tests build exact typed fakes from [tests/support](tests/support), with no `as` casts. Use-case tests fake ports (`fakeRotationPorts.ts`, `fakeConfigurationPorts.ts`). Adapter and edge tests fake the Devvit context (`fakeDevvitContext.ts`).
+- Adapters take narrow context types ([src/platform/index.ts](src/platform/index.ts) and the `*Context` types beside each adapter) that name only the Devvit methods they call, and Devvit's real context satisfies them. Tests build exact typed fakes from [tests/support](tests/support), with no `as` casts. Use-case tests fake ports (`fakeRotationPorts.ts`, `fakeConfigurationPorts.ts`). Adapter and edge tests fake the Devvit context (`fakeDevvitContext.ts`). Integration tests (`tests/*.integration.test.ts`) run the real adapters on Devvit's in-memory harness, through `composition.ts`.
 - vitest's asymmetric matchers (`expect.any`, `expect.objectContaining`) are typed `any`, which the unsafe-`any` rules reject; assert exact arguments, or read `mock.lastCall`.
 - `eslint --fix` on tests rewrites `toHaveBeenCalled()` and `toHaveBeenCalledTimes(1)` into `toHaveBeenCalledWith()` and `toHaveBeenCalledExactlyOnceWith()`, which assert the mock received no arguments. Write the expected arguments by hand instead.
 
