@@ -1,6 +1,6 @@
 # Terms and Conditions
 
-Last updated: 2026-04-22
+Last updated: 2026-11-03
 
 These terms apply to the Reddit app published from this repository, including the app shown in Reddit as `ukpol-megabot`.
 
@@ -17,6 +17,7 @@ Based on that config, it may:
 - Lock posts on rotation
 - Schedule future refresh jobs
 - Rotate posts when the configured schedule or comment cap is reached
+- Send the subreddit's moderators modmail when the config is invalid or a refresh fails
 
 ## Using the app
 

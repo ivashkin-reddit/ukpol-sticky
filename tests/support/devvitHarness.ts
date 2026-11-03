@@ -4,8 +4,9 @@ import { redis } from "@devvit/redis";
 import { scheduler } from "@devvit/scheduler";
 import type { ScheduledJob } from "@devvit/scheduler";
 import { vi } from "vitest";
-import { REFRESH_STICKY_POSTS_JOB } from "../../src/constants.js";
-import type { ManagedPost, StickyContext } from "../../src/stickyManager.js";
+import type { RotationContext } from "../../src/composition.js";
+import { REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
+import type { ManagedPost } from "../../src/rotation/index.js";
 
 /** createDevvitTest()'s default subreddit. */
 export const TEST_SUBREDDIT_ID = "t5_testsub";
@@ -13,16 +14,16 @@ export const TEST_SUBREDDIT_NAME = "testsub";
 
 // The harness exposes Devvit Web's RedditClient, which offers getCurrentSubreddit() where the Blocks RedditAPIClient
 // (what the app receives in production) offers getCurrentSubredditName(), and takes t3_-typed post IDs.
-const harnessReddit: StickyContext["reddit"] = {
+const harnessReddit: RotationContext["reddit"] = {
     modMail: reddit.modMail,
     getCurrentSubredditName: async (): Promise<string> => (await reddit.getCurrentSubreddit()).name,
     getPostById: async (id: string): Promise<ManagedPost> => await reddit.getPostById(asT3ID(id)),
-    submitPost: async (options: Parameters<StickyContext["reddit"]["submitPost"]>[0]): Promise<ManagedPost> =>
+    submitPost: async (options: Parameters<RotationContext["reddit"]["submitPost"]>[0]): Promise<ManagedPost> =>
         await reddit.submitPost(options),
 };
 
-/** The sticky manager's view of Devvit's in-memory test harness. */
-export const HARNESS_CONTEXT: StickyContext = {
+/** Devvit's in-memory test harness, as the composition root builds rotation ports from it. */
+export const HARNESS_CONTEXT: RotationContext = {
     reddit: harnessReddit,
     redis,
     scheduler,
@@ -31,7 +32,7 @@ export const HARNESS_CONTEXT: StickyContext = {
 };
 
 export function isRefreshJob(job: Readonly<{ name: string }>): job is ScheduledJob {
-    return "runAt" in job && job.name === REFRESH_STICKY_POSTS_JOB;
+    return "runAt" in job && job.name === REFRESH_JOB_NAME;
 }
 
 export async function listRefreshJobs(): Promise<ScheduledJob[]> {

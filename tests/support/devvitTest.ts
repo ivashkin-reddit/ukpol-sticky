@@ -2,7 +2,7 @@ import { createDevvitTest } from "@devvit/test/server/vitest";
 
 /**
  * Vitest's `it`, with each test run in a fresh in-memory Devvit world (redis, reddit and scheduler).
- * eslint.config.mjs lists this module in `settings.vitest.vitestImports`, so the vitest lint rules treat it as `it`.
+ * eslint/tests.mjs lists this module in `settings.vitest.vitestImports`, so the vitest lint rules treat it as `it`.
  *
  * WORKAROUND: import this as `{ it as devvitIt }`, not `{ it }`
  *   cause: @vitest/eslint-plugin 1.6.28's prefer-importing-vitest-globals decides "imported from vitest" with

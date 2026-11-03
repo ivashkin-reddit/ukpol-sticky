@@ -13,25 +13,49 @@ Behaviour on Reddit itself is only verifiable with `npx devvit playtest`, which 
 - Docs: <https://developers.reddit.com/docs/llms.txt>. They lag the code; where they disagree with the `.d.ts` files under `node_modules/@devvit/`, the installed types win.
 - This is a Blocks app on `@devvit/public-api`: handlers register in [src/main.ts](src/main.ts), wired by `blocks.entry` in [devvit.json](devvit.json). Reddit has deprecated this model for `@devvit/web` but still supports it. New code follows the existing pattern; moving to `@devvit/web` is its own deliberate job.
 - `@devvit/protos`, `@devvit/public-api`, `@devvit/reddit`, `@devvit/redis`, `@devvit/scheduler`, `@devvit/test` and `devvit` are pinned to one exact version and upgrade together.
-- `@devvit/public-api` re-exports `@devvit/reddit` as types only. A TS1362 error on a Devvit enum means it has no runtime value; `MODS_ONLY` in [src/installTasks.ts](src/installTasks.ts) shows the workaround.
+- `@devvit/public-api` re-exports `@devvit/reddit` as types only. A TS1362 error on a Devvit enum means it has no runtime value; `MODS_ONLY` in [src/configuration/adapters/wikiConfigPage.ts](src/configuration/adapters/wikiConfigPage.ts) shows the workaround.
 - Thing-ID helpers (`asT5ID`, `isT3ID`, …) import from `@devvit/public-api/types/tid.js`; the package root does not export them.
+
+## Architecture
+
+A modular monolith with one bounded context, managed threads, built as ports and adapters. [ADR 0001](docs/adr/0001-modular-monolith-with-capability-modules.md) and [ADR 0002](docs/adr/0002-module-owned-ports-wired-at-the-composition-root.md) record why, and [CONTEXT.md](CONTEXT.md) is the glossary. Name code, logs and modmail with its terms.
+
+- The modules under `src/`, in dependency order, are `notifications`, `configuration` and `rotation`. Each imports only modules before it, and only through their `index.ts`; that file's header comment says what the module owns.
+- Inside a module, dependencies point inward:
+    - `domain/` holds pure rules that take what they need as arguments.
+    - The module root holds the use cases, and `ports.ts` holds the interfaces they need from outside.
+    - `adapters/` implement those ports over Devvit, typed by the narrow context types in [src/platform/index.ts](src/platform/index.ts).
+- The files directly under `src/` are the Devvit edge. [main.ts](src/main.ts) registers the handlers in [triggers.ts](src/triggers.ts). Each handler gets ports from [composition.ts](src/composition.ts), the only code that builds adapters, and calls one use case.
+- A new Devvit capability takes three steps: a port in the module's `ports.ts`, an adapter in its `adapters/`, and wiring in `composition.ts`.
+- [eslint/architecture.mjs](eslint/architecture.mjs) enforces all of this with eslint-plugin-boundaries, and [tests/architecture.test.ts](tests/architecture.test.ts) checks that each rule still fires. A new module joins `MODULE_ORDER` there. A new rule gets a case in the test.
+- Planned features already have places:
+    - Slack is a second adapter for `NotifyModerators`, chosen in `composition.ts`.
+    - A mod UI is a set of handlers at the edge that call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail, and whether refreshes are running from `getRefreshStatus`.
+
+## Logs
+
+`console` is Devvit's only log channel. `devvit logs <subreddit>` streams it, and only developers can see it, so moderators learn of problems through moderator alerts instead.
+
+- Use `console.error` for a failure someone must look into, `console.warn` for bad input the app handled (a rejected config page revision, an event missing a field), and `console.log` for normal activity.
+- Write messages in CONTEXT.md's terms, and name the thread config and the post, revision or job involved.
+- [src/main.ts](src/main.ts) registers every handler through `observed` ([src/observed.ts](src/observed.ts)), which logs each failure with the handler's name and duration. A handler that fires for every comment, post or mod action in the subreddit is registered as "failures only"; its use cases log what they change.
 
 ## Live state
 
-Redis key strings (in [src/config.ts](src/config.ts), [src/wikiConfig.ts](src/wikiConfig.ts) and [src/trackedPosts.ts](src/trackedPosts.ts)) and scheduler job names (in [src/constants.ts](src/constants.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `handleAppUpgrade` migrates it.
+Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), [redisThreadLocks.ts](src/rotation/adapters/redisThreadLocks.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
 
 ## Config fields
 
-A config field lives in four places that change together: the `Config` interface and the ajv `configSchema` in [src/config.ts](src/config.ts), the commented sample written to the wiki in [src/installTasks.ts](src/installTasks.ts), and the README's configuration rules and reference table.
+A thread config field lives in four places that change together: the `ThreadConfig` interface and the ajv `threadConfigsSchema` in [src/configuration/domain/threadConfig.ts](src/configuration/domain/threadConfig.ts), the commented sample written to the config page in [src/configuration/configPageInstall.ts](src/configuration/configPageInstall.ts), and the README's configuration rules and reference table.
 
-A key left empty in YAML parses as null, and ajv admits null for every optional property whose schema allows it, so a new optional field is typed `| null` unless its `enum` excludes null. Stored config is re-validated on every read. One that fails validation throws rather than reading as empty (an empty list means "every config removed", and the refresh then forgets every tracked post), so refreshes and comment-cap rotation stop until moderators re-save the wiki page; they get one modmail asking them to (the `UnreadableConfigAlertSent` key, claimed with NX, keeps it to one until a fresh config is stored). A schema change that rejects previously valid stored config therefore needs a migration in `handleAppUpgrade`.
+A key left empty in YAML parses as null, and ajv admits null for every optional property whose schema allows it, so a new optional field is typed `| null` unless its `enum` excludes null. Stored thread configs are re-validated on every read. A stored config that fails validation throws rather than reading as empty (an empty list means "every thread config removed", and the refresh then forgets every live post), so refreshes and comment-cap rotation stop until moderators re-save the config page; they get one moderator alert asking them to (the `UnreadableConfigAlertSent` key, claimed with NX, keeps it to one until fresh thread configs are stored). A schema change that rejects previously valid stored config therefore needs a migration in `onAppUpgrade`.
 
 ## Strictness
 
 - Prettier owns formatting: `npm run format` writes it, CI runs `npm run format:check`. ESLint carries no formatting rules (eslint-config-prettier), and [.gitattributes](.gitattributes) keeps LF line endings so the check also passes on Windows checkouts.
-- [eslint.config.mjs](eslint.config.mjs) starts from every rule (ESLint `all`, typescript-eslint `all` plus its strict and stylistic typed presets, import-x, regexp, eslint-comments, vitest `all`) and turns a rule off only with its reason beside it. A dependency upgrade can add rules; fix their findings as part of the upgrade.
+- [eslint.config.mjs](eslint.config.mjs) starts from every rule (ESLint `all`, typescript-eslint `all` plus its strict and stylistic typed presets, import-x, regexp, eslint-comments, vitest `all`); the files in [eslint/](eslint) tighten them by concern and turn a rule off only with its reason beside it. A dependency upgrade can add rules; fix their findings as part of the upgrade.
 - Every suppression or workaround carries a `WORKAROUND:` block (`cause`, `blocked`, `fix`, `until`) directly above it; `grep -rn "WORKAROUND:" --exclude-dir=node_modules .` is the ledger. The only allowed directive is `eslint-disable-next-line` with a `--` reason.
-- Handlers take narrow context types ([src/ports.ts](src/ports.ts) and the `*Context` types beside each handler) that name only the Devvit methods they call. Devvit's real context satisfies them, and tests build exact typed fakes from [tests/support](tests/support) — no `as` casts.
+- Adapters take narrow context types ([src/platform/index.ts](src/platform/index.ts) and the `*Context` types beside each adapter) that name only the Devvit methods they call, and Devvit's real context satisfies them. Tests build exact typed fakes from [tests/support](tests/support), with no `as` casts. Use-case tests fake ports (`fakeRotationPorts.ts`, `fakeConfigurationPorts.ts`). Adapter and edge tests fake the Devvit context (`fakeDevvitContext.ts`).
 - vitest's asymmetric matchers (`expect.any`, `expect.objectContaining`) are typed `any`, which the unsafe-`any` rules reject; assert exact arguments, or read `mock.lastCall`.
 - `eslint --fix` on tests rewrites `toHaveBeenCalled()` and `toHaveBeenCalledTimes(1)` into `toHaveBeenCalledWith()` and `toHaveBeenCalledExactlyOnceWith()`, which assert the mock received no arguments. Write the expected arguments by hand instead.
 
