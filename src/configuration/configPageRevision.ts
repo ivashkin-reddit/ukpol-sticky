@@ -118,10 +118,10 @@ async function readNewRevision(ports: Pick<ConfigurationPorts, "page" | "store">
 async function acceptRevision(
     revision: ConfigPageRevision,
     configs: readonly ThreadConfig[],
-    store: ConfigurationPorts["store"],
+    ports: ConfigurationPorts,
 ): Promise<void> {
-    await store.writeAcceptedRevision(revision.revisionId);
-    await storeThreadConfigs(configs, store);
+    await ports.store.writeAcceptedRevision(revision.revisionId);
+    await storeThreadConfigs(configs, ports);
 }
 
 /**
@@ -144,6 +144,6 @@ export async function applyConfigPageRevision(
         return "rejected";
     }
 
-    await acceptRevision(revision, check.configs, ports.store);
+    await acceptRevision(revision, check.configs, ports);
     return "stored";
 }

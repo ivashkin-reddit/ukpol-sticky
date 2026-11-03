@@ -11,14 +11,24 @@ import { applyConfigPageRevision, installConfigPage } from "./configuration/inde
 import type * as Configuration from "./configuration/index.js";
 import type { ConfigPageOutcome, ConfigurationPorts } from "./configuration/index.js";
 import {
+    ensureRefreshPending,
     forgetDeletedPost,
     refreshAllThreads,
     requestRefresh,
     rotateIfCapReached,
     scheduleNextRefresh,
+    startRefreshCheck,
 } from "./rotation/index.js";
 import type * as Rotation from "./rotation/index.js";
-import { onAppInstall, onAppUpgrade, onCommentCreate, onModAction, onPostDelete, onRefreshJob } from "./triggers.js";
+import {
+    onAppInstall,
+    onAppUpgrade,
+    onCommentCreate,
+    onModAction,
+    onPostDelete,
+    onRefreshCheck,
+    onRefreshJob,
+} from "./triggers.js";
 import type { CommentCreateEvent, ModActionEvent } from "./triggers.js";
 
 vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
@@ -32,11 +42,13 @@ vi.mock(import("./configuration/index.js"), (): Partial<typeof Configuration> =>
 }));
 
 vi.mock(import("./rotation/index.js"), (): Partial<typeof Rotation> => ({
+    ensureRefreshPending: vi.fn<typeof ensureRefreshPending>(),
     forgetDeletedPost: vi.fn<typeof forgetDeletedPost>(),
     refreshAllThreads: vi.fn<typeof refreshAllThreads>(),
     requestRefresh: vi.fn<typeof requestRefresh>(),
     rotateIfCapReached: vi.fn<typeof rotateIfCapReached>(),
     scheduleNextRefresh: vi.fn<typeof scheduleNextRefresh>(),
+    startRefreshCheck: vi.fn<typeof startRefreshCheck>(),
 }));
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -157,23 +169,31 @@ describe("lifecycle and job triggers", (): void => {
         expect(vi.mocked(forgetDeletedPost)).toHaveBeenCalledExactlyOnceWith("t3_alpha", rotation.ports.livePosts);
     });
 
-    it("installs the config page on install", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+    it("starts the refresh check, then installs the config page, on install", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
 
-        const { devvit, configuration } = wired();
+        const { devvit, configuration, rotation } = wired();
         await onAppInstall({}, devvit.context);
 
+        expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
         expect(vi.mocked(installConfigPage)).toHaveBeenCalledExactlyOnceWith(configuration.page);
+        expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(installConfigPage));
     });
 
-    it("schedules the next refresh on upgrade", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+    it(
+        "starts the refresh check, then schedules the next refresh, on upgrade",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const { devvit, rotation } = wired();
-        await onAppUpgrade({}, devvit.context);
+            const { devvit, rotation } = wired();
+            await onAppUpgrade({}, devvit.context);
 
-        expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-    });
+            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
+            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
+            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(scheduleNextRefresh));
+        },
+    );
 
     it("refreshes every thread when the refresh job runs", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
@@ -182,5 +202,14 @@ describe("lifecycle and job triggers", (): void => {
         await onRefreshJob({}, devvit.context);
 
         expect(vi.mocked(refreshAllThreads)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
+    });
+
+    it("makes sure a refresh is pending when the refresh check runs", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { devvit, rotation } = wired();
+        await onRefreshCheck({}, devvit.context);
+
+        expect(vi.mocked(ensureRefreshPending)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
     });
 });

@@ -48,7 +48,7 @@ describe(getThreadConfigs, (): void => {
             fakes.store.readConfigs.mockRejectedValue(storeError);
 
             await expect(getThreadConfigs(fakes.ports)).rejects.toBe(storeError);
-            expect(fakes.store.claimUnreadableAlert).not.toHaveBeenCalled();
+            expect(fakes.unreadableAlert.claim).not.toHaveBeenCalled();
         },
     );
 });
@@ -76,7 +76,7 @@ describe("getThreadConfigs with an unreadable stored copy", (): void => {
 
         const fakes = createFakeConfigurationPorts();
         fakes.store.readConfigs.mockRejectedValue(UNREADABLE_ERROR);
-        fakes.store.claimUnreadableAlert.mockResolvedValue(false);
+        fakes.unreadableAlert.claim.mockResolvedValue(false);
 
         await expect(getThreadConfigs(fakes.ports)).rejects.toBe(UNREADABLE_ERROR);
         expect(fakes.notifyModerators).not.toHaveBeenCalled();
@@ -100,7 +100,7 @@ describe("getThreadConfigs with an unreadable stored copy", (): void => {
                 ),
             );
             await expect(reading).rejects.toHaveProperty("cause", sendError);
-            expect(fakes.store.releaseUnreadableAlert).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.unreadableAlert.release).toHaveBeenCalledExactlyOnceWith();
         },
     );
 });
@@ -113,10 +113,10 @@ describe(storeThreadConfigs, (): void => {
             expect.assertions(2);
 
             const fakes = createFakeConfigurationPorts();
-            await storeThreadConfigs([MINIMAL_CONFIG], fakes.ports.store);
+            await storeThreadConfigs([MINIMAL_CONFIG], fakes.ports);
 
             expect(fakes.store.writeConfigs).toHaveBeenCalledExactlyOnceWith([MINIMAL_CONFIG]);
-            expect(fakes.store.writeConfigs).toHaveBeenCalledBefore(fakes.store.releaseUnreadableAlert);
+            expect(fakes.store.writeConfigs).toHaveBeenCalledBefore(fakes.unreadableAlert.release);
         },
     );
 });

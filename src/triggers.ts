@@ -2,11 +2,13 @@ import { configurationPorts, rotationPorts } from "./composition.js";
 import type { ConfigurationContext, RotationContext } from "./composition.js";
 import { applyConfigPageRevision, installConfigPage } from "./configuration/index.js";
 import {
+    ensureRefreshPending,
     forgetDeletedPost,
     refreshAllThreads,
     requestRefresh,
     rotateIfCapReached,
     scheduleNextRefresh,
+    startRefreshCheck,
 } from "./rotation/index.js";
 
 // Each handler adapts one Devvit trigger or scheduled job to a module's use case, with ports from src/composition.ts.
@@ -78,14 +80,22 @@ export async function onPostDelete(event: Readonly<{ postId: string }>, context:
     await forgetDeletedPost(event.postId, rotationPorts(context).livePosts);
 }
 
-export async function onAppInstall(_event: unknown, context: ConfigurationContext): Promise<void> {
+// The refresh check starts first on install and upgrade: it is what recovers from any failure after it.
+export async function onAppInstall(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
+    await startRefreshCheck(rotationPorts(context).refreshJobs);
     await installConfigPage(configurationPorts(context).page);
 }
 
 export async function onAppUpgrade(_event: unknown, context: RotationContext): Promise<void> {
-    await scheduleNextRefresh(rotationPorts(context));
+    const ports = rotationPorts(context);
+    await startRefreshCheck(ports.refreshJobs);
+    await scheduleNextRefresh(ports);
 }
 
 export async function onRefreshJob(_event: unknown, context: RotationContext): Promise<void> {
     await refreshAllThreads(rotationPorts(context));
+}
+
+export async function onRefreshCheck(_event: unknown, context: RotationContext): Promise<void> {
+    await ensureRefreshPending(rotationPorts(context));
 }

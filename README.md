@@ -13,6 +13,8 @@ This app is controlled through the subreddit wiki page `stickymgr/config` on the
 - When a post rotates, the app can add an `endNote` comment to the old thread and lock it if `lockOnRefresh` is `true`.
 - If a config is removed or changed to `enabled: false`, the app stops tracking it on the next refresh pass. It does not delete the existing Reddit post automatically.
 - If the app's stored copy of the config ever becomes unreadable, it stops refreshing posts and sends the moderators one modmail. Re-saving the wiki page `stickymgr/config` fixes it.
+- If a refresh fails (for example, Reddit is unavailable while a post is rotating), the moderators get one modmail, "Sticky Manager could not refresh its threads". No further modmail follows until a refresh succeeds. A thread that was rotating may be left without its post until then: the old post unstickied and locked, with no replacement yet.
+- Once an hour, at minute 43, the app checks that a refresh is scheduled. If none is, as after a refresh that failed, it runs one, which retries whatever failed.
 
 ## Configuration rules
 

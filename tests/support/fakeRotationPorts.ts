@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ThreadConfig } from "../../src/configuration/index.js";
+import type { NotifyModerators } from "../../src/notifications/index.js";
 import type {
     LivePosts,
     LoadThreadConfigs,
@@ -10,6 +11,8 @@ import type {
     RefreshJobs,
     RotationPorts,
 } from "../../src/rotation/index.js";
+import { createFakeAlertLatch } from "./fakeAlertLatch.js";
+import type { FakeAlertLatch } from "./fakeAlertLatch.js";
 
 export interface FakeLivePosts {
     readonly all: Mock<LivePosts["all"]>;
@@ -24,15 +27,22 @@ export interface FakeLivePosts {
 export interface FakeRotationPorts {
     readonly ports: RotationPorts;
     readonly livePosts: FakeLivePosts;
+    readonly notifyModerators: Mock<NotifyModerators>;
     readonly posts: Readonly<{ get: Mock<Posts["get"]>; publish: Mock<Posts["publish"]> }>;
+    readonly refreshFailureAlert: FakeAlertLatch;
     readonly refreshJobs: Readonly<{
         cancelAll: Mock<RefreshJobs["cancelAll"]>;
         scheduleAt: Mock<RefreshJobs["scheduleAt"]>;
+        isPending: Mock<RefreshJobs["isPending"]>;
+        startHourlyCheck: Mock<RefreshJobs["startHourlyCheck"]>;
     }>;
     readonly threadConfigs: Mock<LoadThreadConfigs>;
 }
 
-/** Rotation ports whose every method is a typed mock: no live posts, and `configs` as the thread configs in force. */
+/**
+ * Rotation ports whose every method is a typed mock: no live posts, a refresh pending, an alert latch that can be
+ * claimed, and `configs` as the thread configs in force.
+ */
 export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): FakeRotationPorts {
     const livePosts: FakeLivePosts = {
         all: vi.fn<LivePosts["all"]>().mockResolvedValue({}),
@@ -47,13 +57,26 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
     const refreshJobs = {
         cancelAll: vi.fn<RefreshJobs["cancelAll"]>().mockResolvedValue(undefined),
         scheduleAt: vi.fn<RefreshJobs["scheduleAt"]>().mockResolvedValue(undefined),
+        isPending: vi.fn<RefreshJobs["isPending"]>().mockResolvedValue(true),
+        startHourlyCheck: vi.fn<RefreshJobs["startHourlyCheck"]>().mockResolvedValue(undefined),
     };
+    const notifyModerators = vi.fn<NotifyModerators>().mockResolvedValue(undefined);
+    const refreshFailureAlert = createFakeAlertLatch();
     const threadConfigs = vi.fn<LoadThreadConfigs>().mockResolvedValue(configs);
 
     return {
-        ports: { livePosts, posts, refreshJobs, threadConfigs },
+        ports: {
+            livePosts,
+            notifyModerators,
+            posts,
+            refreshFailureAlert: refreshFailureAlert.latch,
+            refreshJobs,
+            threadConfigs,
+        },
         livePosts,
+        notifyModerators,
         posts,
+        refreshFailureAlert,
         refreshJobs,
         threadConfigs,
     };

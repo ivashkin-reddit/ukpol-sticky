@@ -52,7 +52,7 @@ describe("an unreadable stored config", (): void => {
             await expect(getThreadConfigs(ports)).rejects.toBeInstanceOf(UnreadableConfigError);
             expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
 
-            await storeThreadConfigs([], ports.store);
+            await storeThreadConfigs([], ports);
             await redis.set("Configuration", "{}");
 
             await expect(getThreadConfigs(ports)).rejects.toBeInstanceOf(UnreadableConfigError);

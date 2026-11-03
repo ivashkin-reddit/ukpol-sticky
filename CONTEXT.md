@@ -56,6 +56,10 @@ _Avoid_: closing comment
 One pass over all enabled thread configs that rotates every live post that is due and brings the others' bodies up to date.
 _Avoid_: update, sync
 
+**Refresh check**:
+The hourly check that a refresh is pending; when none is, as after a refresh that failed, it requests one.
+_Avoid_: safety net, heartbeat, cron job
+
 ### Alerting moderators
 
 **Moderator alert**:

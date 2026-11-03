@@ -10,10 +10,5 @@ export type {
     RefreshJobs,
     RotationPorts,
 } from "./ports.js";
-export {
-    forgetDeletedPost,
-    refreshAllThreads,
-    requestRefresh,
-    rotateIfCapReached,
-    scheduleNextRefresh,
-} from "./rotation.js";
+export { ensureRefreshPending, requestRefresh, scheduleNextRefresh, startRefreshCheck } from "./refreshSchedule.js";
+export { forgetDeletedPost, refreshAllThreads, rotateIfCapReached } from "./rotation.js";

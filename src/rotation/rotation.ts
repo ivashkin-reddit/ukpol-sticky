@@ -1,12 +1,9 @@
-import { addSeconds } from "date-fns";
 import { getSchedule, renderTitle } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { earliest, getRotationTime, isDueForRotation, refreshOrder } from "./domain/rotationRules.js";
-import type { LivePosts, ManagedPost, RefreshJobs, RotationPorts } from "./ports.js";
-
-// A refresh scheduled for a rotation time runs a few seconds after it, so the live post is due by then.
-const REFRESH_JOB_DELAY_SECONDS = 5;
-const REQUESTED_REFRESH_DELAY_SECONDS = 1;
+import { isDueForRotation, refreshOrder } from "./domain/rotationRules.js";
+import type { LivePosts, ManagedPost, RotationPorts } from "./ports.js";
+import { alertingOnFailure } from "./refreshFailures.js";
+import { scheduleNextRefresh } from "./refreshSchedule.js";
 
 function findConfigNameOfLivePost(livePostIds: Readonly<Record<string, string>>, postId: string): string | undefined {
     return Object.entries(livePostIds).find(
@@ -102,46 +99,6 @@ async function refreshInOrder(configs: readonly ThreadConfig[], ports: RotationP
     await refreshInOrder(rest, ports);
 }
 
-async function findNextRotationTime(ports: RotationPorts): Promise<Date | undefined> {
-    const configs = (await ports.threadConfigs()).filter((config): boolean => config.enabled);
-    const livePostIds = await ports.livePosts.all();
-    const rotationTimes = await Promise.all(
-        configs.map(async (config): Promise<Date | undefined> => {
-            const schedule = getSchedule(config);
-            const postId = livePostIds[config.name];
-            if (schedule === undefined || postId === undefined) {
-                return undefined;
-            }
-
-            const post = await ports.posts.get(postId);
-            return getRotationTime(post.createdAt, schedule);
-        }),
-    );
-
-    return earliest(rotationTimes);
-}
-
-/** Replaces any pending refresh with one shortly after the earliest rotation time of a scheduled live post. */
-export async function scheduleNextRefresh(ports: RotationPorts): Promise<void> {
-    // Read everything first, so thread configs that cannot be read fail before any pending refresh is cancelled.
-    const nextRotationTime = await findNextRotationTime(ports);
-    await ports.refreshJobs.cancelAll();
-    if (nextRotationTime === undefined) {
-        console.log("No scheduled sticky post refreshes found.");
-        return;
-    }
-
-    const refreshAt = new Date(Math.max(nextRotationTime.getTime(), Date.now()));
-    await ports.refreshJobs.scheduleAt(addSeconds(refreshAt, REFRESH_JOB_DELAY_SECONDS));
-    console.log(`Scheduled next sticky post refresh at ${refreshAt.toISOString()}.`);
-}
-
-/** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */
-export async function requestRefresh(refreshJobs: RefreshJobs): Promise<void> {
-    await refreshJobs.cancelAll();
-    await refreshJobs.scheduleAt(addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS));
-}
-
 async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], livePosts: LivePosts): Promise<void> {
     const configNames = await livePosts.configNames();
     const removedConfigNames = configNames.filter(
@@ -153,11 +110,7 @@ async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], live
     }
 }
 
-/**
- * One refresh: every enabled thread config's live post is published, rotated or brought up to date, live posts of
- * removed or disabled thread configs are forgotten, and the next refresh is scheduled.
- */
-export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
+async function refreshEveryThread(ports: RotationPorts): Promise<void> {
     const configs = await ports.threadConfigs();
     if (configs.length === 0) {
         console.log("No sticky post configurations found.");
@@ -169,6 +122,18 @@ export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
     await refreshInOrder(activeConfigs, ports);
     await scheduleNextRefresh(ports);
     await forgetRemovedThreads(activeConfigs, ports.livePosts);
+}
+
+/**
+ * One refresh: every enabled thread config's live post is published, rotated or brought up to date, live posts of
+ * removed or disabled thread configs are forgotten, and the next refresh is scheduled. A failure alerts moderators;
+ * a success lets the next failure alert them again.
+ */
+export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
+    await alertingOnFailure(ports, async (): Promise<void> => {
+        await refreshEveryThread(ports);
+    });
+    await ports.refreshFailureAlert.release();
 }
 
 async function refreshThreadOfLivePost(postId: string, ports: RotationPorts): Promise<void> {
@@ -196,7 +161,9 @@ export async function rotateIfCapReached(postId: string, ports: RotationPorts): 
     const post = await ports.posts.get(postId);
     if (post.numberOfComments >= commentCap) {
         console.log(`Post ${post.id} has reached the comment cap of ${String(commentCap)}.`);
-        await refreshThreadOfLivePost(postId, ports);
+        await alertingOnFailure(ports, async (): Promise<void> => {
+            await refreshThreadOfLivePost(postId, ports);
+        });
     }
 }
 

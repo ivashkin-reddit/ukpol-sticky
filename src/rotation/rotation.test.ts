@@ -1,17 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { defer } from "../../tests/support/defer.js";
-import { freezeTime } from "../../tests/support/fakeClock.js";
 import { createFakePost, createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import { UnreadableConfigError } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import type { ManagedPost } from "./ports.js";
-import {
-    forgetDeletedPost,
-    refreshAllThreads,
-    requestRefresh,
-    rotateIfCapReached,
-    scheduleNextRefresh,
-} from "./rotation.js";
+import { forgetDeletedPost, refreshAllThreads, rotateIfCapReached } from "./rotation.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -40,6 +33,15 @@ const DISABLED_CONFIG: ThreadConfig = {
 };
 
 const UNREADABLE_ERROR = new UnreadableConfigError("the stored thread configs cannot be read");
+const PUBLISH_ERROR = new Error("Reddit is down");
+const FAILURE_ALERT = {
+    subject: "Sticky Manager could not refresh its threads",
+    bodyMarkdown: [
+        "A refresh of the managed threads failed. A thread that was rotating may have lost its live post: the old one unstickied and locked, with no replacement yet.",
+        "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
+        "Details: Reddit is down",
+    ].join("\n\n"),
+};
 
 function newPost(id: string): ReturnType<typeof createFakePost> {
     return createFakePost({
@@ -83,7 +85,7 @@ describe(refreshAllThreads, (): void => {
         "fails and keeps every live post when the thread configs cannot be read",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(3);
+            expect.assertions(4);
 
             const fakes = createFakeRotationPorts();
             fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
@@ -92,8 +94,33 @@ describe(refreshAllThreads, (): void => {
             await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(UNREADABLE_ERROR);
             expect(fakes.livePosts.forget).not.toHaveBeenCalled();
             expect(fakes.posts.publish).not.toHaveBeenCalled();
+            // Configuration alerts moderators to unreadable thread configs itself.
+            expect(fakes.refreshFailureAlert.claim).not.toHaveBeenCalled();
         },
     );
+
+    it("alerts moderators when a refresh fails, and passes the failure on", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
+
+        await expect(refreshAllThreads(fakes.ports)).rejects.toBe(PUBLISH_ERROR);
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
+        expect(fakes.refreshFailureAlert.release).not.toHaveBeenCalled();
+    });
+
+    it("re-arms the failure alert once a refresh succeeds", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([]);
+
+        await refreshAllThreads(fakes.ports);
+
+        expect(fakes.refreshFailureAlert.release).toHaveBeenCalledExactlyOnceWith();
+        expect(fakes.notifyModerators).not.toHaveBeenCalled();
+    });
 
     it(
         "publishes live posts for enabled thread configs one at a time, sticky first",
@@ -164,36 +191,6 @@ describe(refreshAllThreads, (): void => {
     );
 });
 
-describe(scheduleNextRefresh, (): void => {
-    it(
-        "fails without cancelling pending refreshes when the thread configs cannot be read",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(2);
-
-            const fakes = createFakeRotationPorts();
-            fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
-
-            await expect(scheduleNextRefresh(fakes.ports)).rejects.toThrow(UNREADABLE_ERROR);
-            expect(fakes.refreshJobs.cancelAll).not.toHaveBeenCalled();
-        },
-    );
-});
-
-describe(requestRefresh, (): void => {
-    it("cancels pending refreshes, then schedules one a second from now", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        freezeTime("2026-04-21T10:00:00Z");
-        const fakes = createFakeRotationPorts();
-
-        await requestRefresh(fakes.ports.refreshJobs);
-
-        expect(fakes.refreshJobs.scheduleAt).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:00:01.000Z"));
-        expect(fakes.refreshJobs.cancelAll).toHaveBeenCalledBefore(fakes.refreshJobs.scheduleAt);
-    });
-});
-
 describe(rotateIfCapReached, (): void => {
     it("does nothing for a post without a stored comment cap", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -236,6 +233,21 @@ describe(rotateIfCapReached, (): void => {
         expect(logSpy).toHaveBeenNthCalledWith(1, "Post t3_full has reached the comment cap of 100.");
         expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
         expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("sticky-thread", "t3_next");
+    });
+
+    it("alerts moderators when the rotation at the comment cap fails", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        fakes.livePosts.getCommentCap.mockResolvedValue(100);
+        fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
+        fakes.livePosts.get.mockResolvedValue("t3_full");
+        fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
+        fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
+
+        await expect(rotateIfCapReached("t3_full", fakes.ports)).rejects.toBe(PUBLISH_ERROR);
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
     });
 });
 

@@ -59,7 +59,7 @@ describe(scheduleNextRefresh, (): void => {
 
             freezeTime("2026-04-21T10:00:00Z");
             const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            await storeThreadConfigs([DAILY_CONFIG, WEEKLY_CONFIG, CAP_CONFIG], configReadPorts(HARNESS_CONTEXT).store);
+            await storeThreadConfigs([DAILY_CONFIG, WEEKLY_CONFIG, CAP_CONFIG], configReadPorts(HARNESS_CONTEXT));
             await redis.hSet("StickyPostStore", {
                 "daily-thread": await submitPostAt("2026-04-21T05:00:00Z", "Daily thread", "Daily body"),
                 "weekly-thread": await submitPostAt("2026-04-15T09:00:00Z", "Weekly thread", "Weekly body"),
@@ -84,7 +84,7 @@ describe(scheduleNextRefresh, (): void => {
 
         freezeTime("2026-04-21T10:00:00Z");
         const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        await storeThreadConfigs([CAP_CONFIG], configReadPorts(HARNESS_CONTEXT).store);
+        await storeThreadConfigs([CAP_CONFIG], configReadPorts(HARNESS_CONTEXT));
         await redis.hSet("StickyPostStore", {
             "cap-thread": await submitPostAt("2026-04-21T07:00:00Z", "Cap thread", "Cap body"),
         });
@@ -103,7 +103,7 @@ describe(scheduleNextRefresh, (): void => {
 
         freezeTime("2026-04-21T10:00:00Z");
         vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        await storeThreadConfigs([{ ...DAILY_CONFIG, postTime: "04:00" }], configReadPorts(HARNESS_CONTEXT).store);
+        await storeThreadConfigs([{ ...DAILY_CONFIG, postTime: "04:00" }], configReadPorts(HARNESS_CONTEXT));
         await redis.hSet("StickyPostStore", {
             "daily-thread": await submitPostAt("2026-04-19T08:00:00Z", "Daily thread", "Daily body"),
         });

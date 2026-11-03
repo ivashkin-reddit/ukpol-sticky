@@ -1,4 +1,4 @@
-import type { NotifyModerators } from "../notifications/index.js";
+import type { AlertLatch, NotifyModerators } from "../notifications/index.js";
 import type { ThreadConfig } from "./domain/threadConfig.js";
 
 // What the configuration use cases need from outside the module. Adapters (adapters/) implement these, and the
@@ -36,10 +36,6 @@ export interface ConfigStore {
     /** The config page revision whose thread configs were last accepted. */
     readonly readAcceptedRevision: () => Promise<string | undefined>;
     readonly writeAcceptedRevision: (revisionId: string) => Promise<void>;
-    /** Claims the one alert about an unreadable stored copy: false when another reader already holds the claim. */
-    readonly claimUnreadableAlert: () => Promise<boolean>;
-    /** Gives up the claim, so the next unreadable read alerts again. */
-    readonly releaseUnreadableAlert: () => Promise<void>;
 }
 
 /** Every port the configuration use cases take; each use case declares the subset it uses. */
@@ -47,6 +43,8 @@ export interface ConfigurationPorts {
     readonly notifyModerators: NotifyModerators;
     readonly page: ConfigPage;
     readonly store: ConfigStore;
+    /** Keeps the alert about an unreadable stored copy to one until fresh thread configs are stored. */
+    readonly unreadableAlert: AlertLatch;
 }
 
-export type ConfigReadPorts = Pick<ConfigurationPorts, "notifyModerators" | "store">;
+export type ConfigReadPorts = Pick<ConfigurationPorts, "notifyModerators" | "store" | "unreadableAlert">;

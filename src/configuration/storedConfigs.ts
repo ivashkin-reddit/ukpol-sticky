@@ -1,17 +1,20 @@
 import { CONFIG_PAGE } from "./domain/threadConfig.js";
 import type { ThreadConfig } from "./domain/threadConfig.js";
 import { UnreadableConfigError } from "./ports.js";
-import type { ConfigReadPorts, ConfigStore } from "./ports.js";
+import type { ConfigReadPorts } from "./ports.js";
 
 /** Stores accepted thread configs. They are readable again, so a later breakage alerts moderators again. */
-export async function storeThreadConfigs(configs: readonly ThreadConfig[], store: ConfigStore): Promise<void> {
-    await store.writeConfigs(configs);
-    await store.releaseUnreadableAlert();
+export async function storeThreadConfigs(
+    configs: readonly ThreadConfig[],
+    ports: Pick<ConfigReadPorts, "store" | "unreadableAlert">,
+): Promise<void> {
+    await ports.store.writeConfigs(configs);
+    await ports.unreadableAlert.release();
 }
 
-/** Sends moderators one alert per broken stored copy; the claim lets concurrent readers agree on one sender. */
+/** Sends moderators one alert per broken stored copy; the latch lets concurrent readers agree on one sender. */
 async function alertModeratorsOnce(ports: ConfigReadPorts, reason: string): Promise<void> {
-    if (!(await ports.store.claimUnreadableAlert())) {
+    if (!(await ports.unreadableAlert.claim())) {
         return;
     }
 
@@ -26,7 +29,7 @@ async function alertModeratorsOnce(ports: ConfigReadPorts, reason: string): Prom
         });
     } catch (sendError: unknown) {
         // Release the claim, so the next read retries the alert.
-        await ports.store.releaseUnreadableAlert();
+        await ports.unreadableAlert.release();
         throw new Error(`Could not alert moderators that the stored config cannot be read (${reason})`, {
             cause: sendError,
         });

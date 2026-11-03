@@ -1,4 +1,5 @@
 import type { ThreadConfig } from "../configuration/index.js";
+import type { AlertLatch, NotifyModerators } from "../notifications/index.js";
 
 // What the rotation use cases need from outside the module. Adapters (adapters/) implement these, and the
 // composition root (src/composition.ts) wires them.
@@ -44,10 +45,14 @@ export interface LivePosts {
     readonly storeCommentCap: (postId: string, commentCap: number) => Promise<void>;
 }
 
-/** Pending refreshes. */
+/** Pending refreshes, and the hourly refresh check. */
 export interface RefreshJobs {
     readonly cancelAll: () => Promise<void>;
     readonly scheduleAt: (runAt: Date) => Promise<void>;
+    /** Whether a refresh is pending. */
+    readonly isPending: () => Promise<boolean>;
+    /** Starts the hourly refresh check, replacing any earlier one. */
+    readonly startHourlyCheck: () => Promise<void>;
 }
 
 /** The thread configs in force. */
@@ -56,7 +61,10 @@ export type LoadThreadConfigs = () => Promise<readonly ThreadConfig[]>;
 /** Every port the rotation use cases take; each use case declares the subset it uses. */
 export interface RotationPorts {
     readonly livePosts: LivePosts;
+    readonly notifyModerators: NotifyModerators;
     readonly posts: Posts;
+    /** Keeps the alert about failed refreshes to one until a refresh succeeds again. */
+    readonly refreshFailureAlert: AlertLatch;
     readonly refreshJobs: RefreshJobs;
     readonly threadConfigs: LoadThreadConfigs;
 }

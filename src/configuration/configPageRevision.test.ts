@@ -54,7 +54,7 @@ describe(applyConfigPageRevision, (): void => {
                 },
             ]);
             expect(fakes.store.writeAcceptedRevision).toHaveBeenCalledBefore(fakes.store.writeConfigs);
-            expect(fakes.store.releaseUnreadableAlert).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.unreadableAlert.release).toHaveBeenCalledExactlyOnceWith();
         },
     );
 

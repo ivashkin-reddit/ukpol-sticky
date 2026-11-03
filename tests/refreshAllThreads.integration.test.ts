@@ -32,7 +32,7 @@ async function refreshJobTimes(): Promise<string[]> {
 async function submitActivePost(configs: readonly ThreadConfig[], body: string): Promise<string> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    await storeThreadConfigs(configs, configReadPorts(HARNESS_CONTEXT).store);
+    await storeThreadConfigs(configs, configReadPorts(HARNESS_CONTEXT));
     const activePostId = await submitPostAt("2026-04-21T05:00:00Z", "Active thread", body);
     vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
     return activePostId;

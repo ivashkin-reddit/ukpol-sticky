@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { freezeTime } from "../../../tests/support/fakeClock.js";
 import { createFakeDevvitContext } from "../../../tests/support/fakeDevvitContext.js";
 import type { FakeRedis } from "../../../tests/support/fakeDevvitContext.js";
 import type { ThreadConfig } from "../domain/threadConfig.js";
@@ -109,36 +108,5 @@ describe(redisConfigStore, (): void => {
         expect(accepted).toBe("rev-1");
         expect(redis.get).toHaveBeenCalledExactlyOnceWith("LastRevision");
         expect(redis.set).toHaveBeenCalledExactlyOnceWith("LastRevision", "rev-2");
-    });
-
-    it("claims the unreadable-config alert with an NX write of the time", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        freezeTime("2026-04-21T10:00:00Z");
-        const redis = redisStoring(undefined);
-
-        await expect(redisConfigStore(redis).claimUnreadableAlert()).resolves.toBe(true);
-        expect(redis.set).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent", "2026-04-21T10:00:00.000Z", {
-            nx: true,
-        });
-    });
-
-    it("reports the claim taken when Redis declines the NX write", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
-
-        const redis = redisStoring(undefined);
-        // Redis answers a declined NX write with nil, which Devvit returns as "".
-        redis.set.mockResolvedValue("");
-
-        await expect(redisConfigStore(redis).claimUnreadableAlert()).resolves.toBe(false);
-    });
-
-    it("releases the claim by deleting its key", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
-
-        const redis = redisStoring(undefined);
-        await redisConfigStore(redis).releaseUnreadableAlert();
-
-        expect(redis.del).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
     });
 });

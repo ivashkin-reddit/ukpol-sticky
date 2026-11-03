@@ -2,6 +2,8 @@ import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ConfigPage, ConfigStore, ConfigurationPorts, ThreadConfig } from "../../src/configuration/index.js";
 import type { NotifyModerators } from "../../src/notifications/index.js";
+import { createFakeAlertLatch } from "./fakeAlertLatch.js";
+import type { FakeAlertLatch } from "./fakeAlertLatch.js";
 
 export const VALID_CONFIG_PAGE = [
     "name: daily-thread",
@@ -20,8 +22,6 @@ export interface FakeConfigStore {
     readonly writeConfigs: Mock<ConfigStore["writeConfigs"]>;
     readonly readAcceptedRevision: Mock<ConfigStore["readAcceptedRevision"]>;
     readonly writeAcceptedRevision: Mock<ConfigStore["writeAcceptedRevision"]>;
-    readonly claimUnreadableAlert: Mock<ConfigStore["claimUnreadableAlert"]>;
-    readonly releaseUnreadableAlert: Mock<ConfigStore["releaseUnreadableAlert"]>;
 }
 
 export interface FakeConfigurationPorts {
@@ -29,6 +29,7 @@ export interface FakeConfigurationPorts {
     readonly notifyModerators: Mock<NotifyModerators>;
     readonly page: Readonly<{ read: Mock<ConfigPage["read"]>; install: Mock<ConfigPage["install"]> }>;
     readonly store: FakeConfigStore;
+    readonly unreadableAlert: FakeAlertLatch;
 }
 
 export type FakeConfigurationOptions = Readonly<{
@@ -43,8 +44,6 @@ function createFakeStore(options: FakeConfigurationOptions): FakeConfigStore {
         writeConfigs: vi.fn<ConfigStore["writeConfigs"]>().mockResolvedValue(undefined),
         readAcceptedRevision: vi.fn<ConfigStore["readAcceptedRevision"]>().mockResolvedValue(options.acceptedRevision),
         writeAcceptedRevision: vi.fn<ConfigStore["writeAcceptedRevision"]>().mockResolvedValue(undefined),
-        claimUnreadableAlert: vi.fn<ConfigStore["claimUnreadableAlert"]>().mockResolvedValue(true),
-        releaseUnreadableAlert: vi.fn<ConfigStore["releaseUnreadableAlert"]>().mockResolvedValue(undefined),
     };
 }
 
@@ -63,6 +62,13 @@ export function createFakeConfigurationPorts(options: FakeConfigurationOptions =
         install: vi.fn<ConfigPage["install"]>().mockResolvedValue(undefined),
     };
     const store = createFakeStore(options);
+    const unreadableAlert = createFakeAlertLatch();
 
-    return { ports: { notifyModerators, page, store }, notifyModerators, page, store };
+    return {
+        ports: { notifyModerators, page, store, unreadableAlert: unreadableAlert.latch },
+        notifyModerators,
+        page,
+        store,
+        unreadableAlert,
+    };
 }
