@@ -109,4 +109,17 @@ describe(redisConfigStore, (): void => {
         expect(redis.get).toHaveBeenCalledExactlyOnceWith("LastRevision");
         expect(redis.set).toHaveBeenCalledExactlyOnceWith("LastRevision", "rev-2");
     });
+
+    it("keeps the rejected revision under LastRejectedRevision", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const redis = redisStoring("rev-3");
+        const store = redisConfigStore(redis);
+        const rejected = await store.readRejectedRevision();
+        await store.writeRejectedRevision("rev-4");
+
+        expect(rejected).toBe("rev-3");
+        expect(redis.get).toHaveBeenCalledExactlyOnceWith("LastRejectedRevision");
+        expect(redis.set).toHaveBeenCalledExactlyOnceWith("LastRejectedRevision", "rev-4");
+    });
 });

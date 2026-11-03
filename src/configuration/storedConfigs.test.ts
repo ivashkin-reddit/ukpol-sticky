@@ -65,7 +65,7 @@ describe("getThreadConfigs with an unreadable stored copy", (): void => {
             subject: "Sticky Manager cannot read its stored config",
             bodyMarkdown: [
                 "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
-                "Re-save the wiki page stickymgr/config to store a fresh copy.",
+                "Edit and save the wiki page stickymgr/config (any change will do) to store a fresh copy.",
                 "Details: the stored copy is not JSON",
             ].join("\n\n"),
         });

@@ -14,7 +14,7 @@ export interface ConfigPageRevision {
 export interface ConfigPage {
     /** The page's current revision, or undefined when it cannot be fetched (the adapter logs why). */
     readonly read: () => Promise<ConfigPageRevision | undefined>;
-    /** Replaces the page's content and makes the page editable by moderators only. */
+    /** Writes `content` to the page unless it already has content, and makes it editable by moderators only. */
     readonly install: (content: string) => Promise<void>;
 }
 
@@ -34,6 +34,9 @@ export interface ConfigStore {
     /** The config page revision whose thread configs were last accepted. */
     readonly readAcceptedRevision: () => Promise<string | undefined>;
     readonly writeAcceptedRevision: (revisionId: string) => Promise<void>;
+    /** The config page revision most recently rejected, so moderators are alerted to it once. */
+    readonly readRejectedRevision: () => Promise<string | undefined>;
+    readonly writeRejectedRevision: (revisionId: string) => Promise<void>;
 }
 
 /** Every port the configuration use cases take; each use case declares the subset it uses. */

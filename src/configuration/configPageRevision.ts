@@ -47,6 +47,13 @@ function describeProblem(problem: ConfigProblem, moderatorName: string): Moderat
                     p: `/u/${moderatorName}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.`,
                 },
             ]);
+        case "invalidValue":
+            return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
+                {
+                    p: `/u/${moderatorName}, config "${problem.configName}" is invalid: ${problem.reason}. Please fix it.`,
+                },
+                { p: KEEPING_EXISTING_CONFIG },
+            ]);
     }
 }
 
@@ -61,6 +68,8 @@ function summarizeProblem(problem: ConfigProblem): string {
             return `thread config ${problem.configName} has an invalid date format (${problem.dateFormat}): ${problem.cause.message}`;
         case "duplicateNames":
             return "two thread configs share a name";
+        case "invalidValue":
+            return `thread config "${problem.configName}" is invalid: ${problem.reason}`;
     }
 }
 
@@ -78,29 +87,63 @@ function describeYamlErrors(parseErrors: readonly string[], moderatorName: strin
     ]);
 }
 
+/**
+ * The documents' values, or the errors that kept documents from producing one. An alias to an anchor that does not
+ * exist (or is in another document) parses without errors and only fails here.
+ */
+function documentValues(
+    documents: readonly YamlDocument[],
+): Readonly<{ errors: string[] }> | Readonly<{ values: unknown[] }> {
+    const errors: string[] = [];
+    const values: unknown[] = [];
+    for (const [index, document] of documents.entries()) {
+        try {
+            values.push(document.toJSON());
+        } catch (error: unknown) {
+            if (!(error instanceof Error)) {
+                throw error;
+            }
+
+            errors.push(`Document ${String(index + 1)}: ${error.message}`);
+        }
+    }
+
+    return errors.length > 0 ? { errors } : { values };
+}
+
 type Rejection = Readonly<{ alert: ModeratorAlert; summary: string }>;
+
+function rejectYaml(errors: readonly string[], moderatorName: string): Rejection & Readonly<{ kind: "invalid" }> {
+    return {
+        kind: "invalid",
+        alert: describeYamlErrors(errors, moderatorName),
+        summary: `invalid YAML: ${errors.map((error): string => error.trim()).join(" | ")}`,
+    };
+}
 
 type PageCheck =
     (Rejection & Readonly<{ kind: "invalid" }>) | Readonly<{ kind: "valid"; configs: readonly ThreadConfig[] }>;
 
-/** Parses the config page's YAML documents and checks the thread configs they define. */
-function checkConfigPage(content: string, moderatorName: string): PageCheck {
+/** The config page's YAML documents as values, or the errors in parsing them. */
+function parseConfigPage(content: string): Readonly<{ errors: string[] }> | Readonly<{ values: unknown[] }> {
     const documents: readonly YamlDocument[] = parseAllDocuments(content);
     const parseErrors = documents.flatMap((document: YamlDocument, index: number): string[] =>
         document.errors.map(
             (error: Readonly<{ message: string }>): string => `Document ${String(index + 1)}: ${error.message}`,
         ),
     );
-    if (parseErrors.length > 0) {
-        return {
-            kind: "invalid",
-            alert: describeYamlErrors(parseErrors, moderatorName),
-            summary: `invalid YAML: ${parseErrors.map((parseError): string => parseError.trim()).join(" | ")}`,
-        };
+    return parseErrors.length > 0 ? { errors: parseErrors } : documentValues(documents);
+}
+
+/** Parses the config page's YAML documents and checks the thread configs they define. */
+function checkConfigPage(content: string, moderatorName: string): PageCheck {
+    const parsed = parseConfigPage(content);
+    if ("errors" in parsed) {
+        return rejectYaml(parsed.errors, moderatorName);
     }
 
     // Empty documents parse to null; compact drops them before checking.
-    const check = checkThreadConfigs(compact(documents.map((document: YamlDocument): unknown => document.toJSON())));
+    const check = checkThreadConfigs(compact(parsed.values));
     if (check.kind === "invalid") {
         return {
             kind: "invalid",
@@ -115,16 +158,22 @@ function checkConfigPage(content: string, moderatorName: string): PageCheck {
 type RevisionRead =
     Readonly<{ kind: "new"; revision: ConfigPageRevision }> | Readonly<{ kind: "unavailable" | "unchanged" }>;
 
-/** Reads the config page, telling apart a revision not yet accepted from one already accepted or a failed read. */
+/**
+ * Reads the config page, telling a revision not yet checked from one already accepted or rejected, or a failed read.
+ * Every wiki revision in the subreddit (usernotes, the AutoModerator page) triggers a read, so remembering the
+ * rejected revision keeps moderators from being alerted to it again.
+ */
 async function readNewRevision(ports: Pick<ConfigurationPorts, "page" | "store">): Promise<RevisionRead> {
     const acceptedRevision = await ports.store.readAcceptedRevision();
+    const rejectedRevision = await ports.store.readRejectedRevision();
     const revision = await ports.page.read();
     if (revision === undefined) {
         return { kind: "unavailable" };
     }
 
-    if (revision.revisionId === acceptedRevision) {
-        console.log(`Config page revision ${revision.revisionId} is already accepted.`);
+    if (revision.revisionId === acceptedRevision || revision.revisionId === rejectedRevision) {
+        const verdict = revision.revisionId === acceptedRevision ? "accepted" : "rejected";
+        console.log(`Config page revision ${revision.revisionId} is already ${verdict}.`);
         return { kind: "unchanged" };
     }
 
@@ -134,10 +183,12 @@ async function readNewRevision(ports: Pick<ConfigurationPorts, "page" | "store">
 async function rejectRevision(
     revision: ConfigPageRevision,
     rejection: Rejection,
-    ports: Pick<ConfigurationPorts, "notifyModerators">,
+    ports: Pick<ConfigurationPorts, "notifyModerators" | "store">,
 ): Promise<void> {
     console.warn(`Rejected config page revision ${revision.revisionId}: ${rejection.summary}.`);
     await ports.notifyModerators(rejection.alert);
+    // Recorded once the alert is sent, so an alert that failed to send is retried by the next wiki revision event.
+    await ports.store.writeRejectedRevision(revision.revisionId);
 }
 
 async function acceptRevision(
@@ -145,8 +196,9 @@ async function acceptRevision(
     configs: readonly ThreadConfig[],
     ports: ConfigurationPorts,
 ): Promise<void> {
-    await ports.store.writeAcceptedRevision(revision.revisionId);
+    // Thread configs first: a failure in between then leaves the revision unaccepted, so applying it again stores them.
     await storeThreadConfigs(configs, ports);
+    await ports.store.writeAcceptedRevision(revision.revisionId);
     console.log(`Accepted config page revision ${revision.revisionId}: ${String(configs.length)} thread configs.`);
 }
 

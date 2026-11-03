@@ -4,10 +4,11 @@ import type { ThreadConfig } from "../domain/threadConfig.js";
 import { UnreadableConfigError } from "../ports.js";
 import type { ConfigStore } from "../ports.js";
 
-// Live state in every installed subreddit, so these keys stay stable: the accepted thread configs, and the config page
-// revision they came from.
+// Live state in every installed subreddit, so these keys stay stable: the accepted thread configs, the config page
+// revision they came from, and the revision most recently rejected.
 const CONFIG_STORAGE = "Configuration";
 const LAST_REVISION_KEY = "LastRevision";
+const LAST_REJECTED_REVISION_KEY = "LastRejectedRevision";
 
 export type ConfigStoreRedis = RedisPort<"get" | "set">;
 
@@ -53,6 +54,10 @@ export function redisConfigStore(redis: ConfigStoreRedis): ConfigStore {
         readAcceptedRevision: async (): Promise<string | undefined> => await redis.get(LAST_REVISION_KEY),
         writeAcceptedRevision: async (revisionId: string): Promise<void> => {
             await redis.set(LAST_REVISION_KEY, revisionId);
+        },
+        readRejectedRevision: async (): Promise<string | undefined> => await redis.get(LAST_REJECTED_REVISION_KEY),
+        writeRejectedRevision: async (revisionId: string): Promise<void> => {
+            await redis.set(LAST_REJECTED_REVISION_KEY, revisionId);
         },
     };
 }

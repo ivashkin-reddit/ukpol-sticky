@@ -114,3 +114,60 @@ describe(getSchedule, (): void => {
         }).toThrow(new RangeError(`postTime "${postTime}" is not in HH:mm format.`));
     });
 });
+
+describe("checkThreadConfigs on values Reddit or the app's records cannot take", (): void => {
+    it.for<readonly [string, Partial<ThreadConfig>, string, string]>([
+        ["an empty name", { name: " " }, " ", "its name is empty"],
+        ["the name __proto__", { name: "__proto__" }, "__proto__", "its name is reserved"],
+        ["the name toString", { name: "toString" }, "toString", "its name is reserved"],
+        [
+            "a name too long for an alert subject",
+            { name: "n".repeat(70) },
+            `${"n".repeat(64)}…`,
+            "its name is longer than 64 characters",
+        ],
+        ["an empty title", { title: "   " }, "daily-thread", "its title is empty"],
+        [
+            "a long title",
+            { title: "t".repeat(301) },
+            "daily-thread",
+            "its title is longer than Reddit's limit of 300 characters",
+        ],
+        [
+            "a long body",
+            { body: "b".repeat(40_001) },
+            "daily-thread",
+            "its body is longer than Reddit's limit of 40,000 characters",
+        ],
+        [
+            "a long end note",
+            { endNote: "e".repeat(10_001) },
+            "daily-thread",
+            "its end note is longer than Reddit's limit of 10,000 characters for a comment",
+        ],
+    ])(
+        "rejects %s",
+        TEST_OPTIONS,
+        ([, change, configName, reason]: readonly [string, Partial<ThreadConfig>, string, string]): void => {
+            expect.assertions(1);
+
+            expect(checkThreadConfigs([{ ...MINIMAL_CONFIG, ...change }])).toStrictEqual({
+                kind: "invalid",
+                problem: { kind: "invalidValue", configName, reason },
+            });
+        },
+    );
+
+    it("accepts text exactly at Reddit's limits", TEST_OPTIONS, (): void => {
+        expect.assertions(1);
+
+        const atLimits: ThreadConfig = {
+            ...MINIMAL_CONFIG,
+            title: "t".repeat(300),
+            body: "b".repeat(40_000),
+            endNote: "e".repeat(10_000),
+        };
+
+        expect(checkThreadConfigs([atLimits])).toStrictEqual({ kind: "valid", configs: [atLimits] });
+    });
+});

@@ -50,9 +50,24 @@ async function readRevision(context: WikiConfigPageContext): Promise<ConfigPageR
     }
 }
 
+/** The config page's current content; "" when it cannot be read, as before the page exists. */
+async function readContent(context: WikiConfigPageContext, subredditName: string): Promise<string> {
+    try {
+        return (await context.reddit.getWikiPage(subredditName, CONFIG_PAGE)).content;
+    } catch {
+        return "";
+    }
+}
+
 async function install(context: WikiConfigPageContext, content: string): Promise<void> {
     const subredditName = await getSubredditName(context);
-    await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content });
+    // A reinstall finds the moderators' thread configs on the page; replacing them would forget every live post.
+    if ((await readContent(context, subredditName)).trim() === "") {
+        await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content });
+    } else {
+        console.log(`Kept the existing content of the config page ${CONFIG_PAGE}.`);
+    }
+
     await context.reddit.updateWikiPageSettings({
         subredditName,
         page: CONFIG_PAGE,

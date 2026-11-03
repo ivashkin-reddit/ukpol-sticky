@@ -2,7 +2,7 @@ import { Ajv } from "ajv";
 import type { JSONSchemaType } from "ajv";
 import { format } from "date-fns";
 import { uniq } from "lodash";
-import { findDateToken } from "./titleTemplate.js";
+import { findDateToken, renderTitle } from "./titleTemplate.js";
 
 /** The wiki page that holds the thread configs. */
 export const CONFIG_PAGE = "stickymgr/config";
@@ -25,6 +25,13 @@ const POST_TIME = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/u;
 
 // Any instant will do: a date-fns format string is valid or not regardless of the date it formats.
 const ANY_INSTANT = 0;
+
+// Reddit's limits, in characters, on what the app writes from a thread config. A thread config's name also appears in
+// alert subjects, which modmail caps at 100 characters.
+const MAX_NAME_LENGTH = 64;
+const MAX_TITLE_LENGTH = 300;
+const MAX_BODY_LENGTH = 40_000;
+const MAX_END_NOTE_LENGTH = 10_000;
 
 /**
  * One moderator-written definition of a managed thread: a YAML document on the config page.
@@ -85,11 +92,52 @@ export type ConfigProblem =
     | Readonly<{ kind: "duplicateNames" }>
     | Readonly<{ kind: "incompleteSchedule"; configName: string }>
     | Readonly<{ kind: "invalidDateFormat"; configName: string; dateFormat: string; cause: Readonly<RangeError> }>
-    | Readonly<{ kind: "invalidSchema"; errors: string }>;
+    | Readonly<{ kind: "invalidSchema"; errors: string }>
+    | Readonly<{ kind: "invalidValue"; configName: string; reason: string }>;
 
 export type ThreadConfigsCheck =
     | Readonly<{ kind: "invalid"; problem: ConfigProblem }>
     | Readonly<{ kind: "valid"; configs: readonly ThreadConfig[] }>;
+
+/** A name that could not key a thread config's records, or would not fit in an alert subject. */
+function checkName(config: ThreadConfig): ConfigProblem | undefined {
+    const { name } = config;
+    const configName = name.length > MAX_NAME_LENGTH ? `${name.slice(0, MAX_NAME_LENGTH)}…` : name;
+    if (name.trim() === "") {
+        return { kind: "invalidValue", configName, reason: "its name is empty" };
+    }
+
+    // Live posts are kept in a record keyed by name, where these names would read the record's own properties.
+    if (name in Object.prototype) {
+        return { kind: "invalidValue", configName, reason: "its name is reserved" };
+    }
+
+    return name.length > MAX_NAME_LENGTH
+        ? { kind: "invalidValue", configName, reason: `its name is longer than ${String(MAX_NAME_LENGTH)} characters` }
+        : undefined;
+}
+
+/** Text that Reddit would refuse to publish. Runs after checkDateToken, since rendering needs a valid date token. */
+function checkText(config: ThreadConfig): ConfigProblem | undefined {
+    const title = renderTitle(config.title, new Date(ANY_INSTANT));
+    const reasons: readonly (readonly [boolean, string])[] = [
+        [title.trim() === "", "its title is empty"],
+        [
+            Math.max(config.title.length, title.length) > MAX_TITLE_LENGTH,
+            `its title is longer than Reddit's limit of ${String(MAX_TITLE_LENGTH)} characters`,
+        ],
+        [
+            config.body.length > MAX_BODY_LENGTH,
+            `its body is longer than Reddit's limit of ${MAX_BODY_LENGTH.toLocaleString("en")} characters`,
+        ],
+        [
+            (config.endNote ?? "").length > MAX_END_NOTE_LENGTH,
+            `its end note is longer than Reddit's limit of ${MAX_END_NOTE_LENGTH.toLocaleString("en")} characters for a comment`,
+        ],
+    ];
+    const reason = reasons.find(([applies]: readonly [boolean, string]): boolean => applies)?.[1];
+    return reason === undefined ? undefined : { kind: "invalidValue", configName: config.name, reason };
+}
 
 function checkSchedulePair(config: ThreadConfig): ConfigProblem | undefined {
     const hasFrequency = config.frequency !== undefined;
@@ -117,12 +165,13 @@ function checkDateToken(config: ThreadConfig): ConfigProblem | undefined {
 }
 
 /**
- * Checks values parsed from the config page: the schema, then each thread config's schedule and date token in page
- * order, then that names are unique. The first problem found is the one reported.
+ * Checks values parsed from the config page: the schema, then each thread config's name, schedule, date token and
+ * text in page order, then that names are unique. The first problem found is the one reported. These checks apply
+ * only to a config page being saved; a stored copy is checked against the schema alone, so it stays readable.
  */
 function firstConfigProblem(configs: readonly ThreadConfig[]): ConfigProblem | undefined {
     for (const config of configs) {
-        const problem = checkSchedulePair(config) ?? checkDateToken(config);
+        const problem = checkName(config) ?? checkSchedulePair(config) ?? checkDateToken(config) ?? checkText(config);
         if (problem !== undefined) {
             return problem;
         }

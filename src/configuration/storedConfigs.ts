@@ -23,7 +23,7 @@ async function alertModeratorsOnce(ports: ConfigReadPorts, reason: string): Prom
             subject: "Sticky Manager cannot read its stored config",
             bodyMarkdown: [
                 "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
-                `Re-save the wiki page ${CONFIG_PAGE} to store a fresh copy.`,
+                `Edit and save the wiki page ${CONFIG_PAGE} (any change will do) to store a fresh copy.`,
                 `Details: ${reason}`,
             ].join("\n\n"),
         });

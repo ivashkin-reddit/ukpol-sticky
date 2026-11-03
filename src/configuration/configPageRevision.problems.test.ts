@@ -105,6 +105,32 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "\n/u/mod_user, there are duplicate config names in wiki page stickymgr/config. Please ensure all config names are unique.\n",
         warnLog: "Rejected config page revision rev-2: two thread configs share a name.",
     },
+    {
+        problem: "a title longer than Reddit allows",
+        pageContent: [
+            "name: long-title",
+            "enabled: true",
+            `title: ${"t".repeat(301)}`,
+            "maxComments: 5",
+            "body: b",
+        ].join("\n"),
+        subject: "Invalid config in wiki page stickymgr/config",
+        bodyMarkdown:
+            '\n/u/mod_user, config "long-title" is invalid: its title is longer than Reddit\'s limit of 300 characters. Please fix it.\n\n\nThe existing config will be used until the issue is resolved.\n',
+        warnLog:
+            'Rejected config page revision rev-2: thread config "long-title" is invalid: its title is longer than Reddit\'s limit of 300 characters.',
+    },
+    {
+        problem: "an alias to an anchor that does not exist",
+        pageContent: ["name: aliased", "enabled: true", "title: Aliased", "maxComments: 5", "body: *missing"].join(
+            "\n",
+        ),
+        subject: "Invalid YAML in wiki page stickymgr/config",
+        bodyMarkdown:
+            "\n/u/mod_user, the wiki page stickymgr/config contains invalid YAML. Please fix it.\n\n\nErrors:\n\n> Document 1: Unresolved alias (the anchor must be set before the alias): missing\n\n\nThe existing config will be used until the issue is resolved.\n",
+        warnLog:
+            "Rejected config page revision rev-2: invalid YAML: Document 1: Unresolved alias (the anchor must be set before the alias): missing.",
+    },
 ];
 
 describe("applyConfigPageRevision with an invalid config page", (): void => {

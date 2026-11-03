@@ -30,7 +30,7 @@ describe(applyConfigPageRevision, (): void => {
     });
 
     it(
-        "records the revision, then stores its thread configs and releases the alert claim",
+        "stores the revision's thread configs and releases the alert claim, then records the revision",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(5);
@@ -51,7 +51,7 @@ describe(applyConfigPageRevision, (): void => {
                     body: "Hello world\n",
                 },
             ]);
-            expect(fakes.store.writeAcceptedRevision).toHaveBeenCalledBefore(fakes.store.writeConfigs);
+            expect(fakes.store.writeConfigs).toHaveBeenCalledBefore(fakes.store.writeAcceptedRevision);
             expect(fakes.unreadableAlert.release).toHaveBeenCalledExactlyOnceWith();
         },
     );
@@ -75,4 +75,41 @@ describe(applyConfigPageRevision, (): void => {
             { name: "cap-thread", enabled: true, title: "Cap", maxComments: 5, body: "b", endNote: null },
         ]);
     });
+
+    it(
+        "leaves the revision unaccepted when storing its thread configs fails, so applying it again stores them",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            silenceConsole("log");
+            const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-1" });
+            const storeError = new Error("redis unavailable");
+            fakes.store.writeConfigs.mockRejectedValueOnce(storeError);
+
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).rejects.toBe(storeError);
+            expect(fakes.store.writeAcceptedRevision).not.toHaveBeenCalled();
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("stored");
+        },
+    );
+
+    it(
+        "remembers a rejected revision, so later wiki revisions elsewhere do not alert moderators to it again",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(4);
+
+            silenceConsole("warn");
+            const logSpy = silenceConsole("log");
+            const fakes = createFakeConfigurationPorts({ pageContent: "name: incomplete" });
+
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("rejected");
+            expect(fakes.store.writeRejectedRevision).toHaveBeenCalledExactlyOnceWith("rev-2");
+
+            fakes.store.readRejectedRevision.mockResolvedValue("rev-2");
+
+            await expect(applyConfigPageRevision("other_mod", fakes.ports)).resolves.toBe("unchanged");
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith("Config page revision rev-2 is already rejected.");
+        },
+    );
 });

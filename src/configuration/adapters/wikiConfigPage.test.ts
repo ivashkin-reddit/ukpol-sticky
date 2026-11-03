@@ -44,6 +44,7 @@ describe("wikiConfigPage().install", (): void => {
             expect.assertions(3);
 
             const fakes = createFakeDevvitContext("testsub");
+            fakes.reddit.getWikiPage.mockRejectedValue(new Error("PAGE_NOT_FOUND"));
             await wikiConfigPage(fakes.context).install("# template");
 
             expect(fakes.reddit.updateWikiPage).toHaveBeenCalledExactlyOnceWith({
@@ -61,4 +62,46 @@ describe("wikiConfigPage().install", (): void => {
             expect(fakes.reddit.updateWikiPage).toHaveBeenCalledBefore(fakes.reddit.updateWikiPageSettings);
         },
     );
+});
+
+describe("wikiConfigPage().install on a reinstall", (): void => {
+    it(
+        "keeps a config page that already has content, still making it editable by moderators only",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const logSpy = silenceConsole("log");
+            const fakes = createFakeDevvitContext("testsub");
+            fakes.reddit.getWikiPage.mockResolvedValue({ content: "name: daily-thread", revisionId: "rev-9" });
+
+            await wikiConfigPage(fakes.context).install("# template");
+
+            expect(fakes.reddit.updateWikiPage).not.toHaveBeenCalled();
+            expect(fakes.reddit.updateWikiPageSettings).toHaveBeenCalledExactlyOnceWith({
+                subredditName: "testsub",
+                page: "stickymgr/config",
+                permLevel: 2,
+                listed: true,
+            });
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Kept the existing content of the config page stickymgr/config.",
+            );
+        },
+    );
+
+    it("writes the template to an empty config page", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const fakes = createFakeDevvitContext("testsub");
+        fakes.reddit.getWikiPage.mockResolvedValue({ content: "  \n", revisionId: "rev-1" });
+
+        await wikiConfigPage(fakes.context).install("# template");
+
+        expect(fakes.reddit.updateWikiPage).toHaveBeenCalledExactlyOnceWith({
+            subredditName: "testsub",
+            page: "stickymgr/config",
+            content: "# template",
+        });
+    });
 });

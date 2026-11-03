@@ -22,6 +22,8 @@ export interface FakeConfigStore {
     readonly writeConfigs: Mock<ConfigStore["writeConfigs"]>;
     readonly readAcceptedRevision: Mock<ConfigStore["readAcceptedRevision"]>;
     readonly writeAcceptedRevision: Mock<ConfigStore["writeAcceptedRevision"]>;
+    readonly readRejectedRevision: Mock<ConfigStore["readRejectedRevision"]>;
+    readonly writeRejectedRevision: Mock<ConfigStore["writeRejectedRevision"]>;
 }
 
 export interface FakeConfigurationPorts {
@@ -44,6 +46,8 @@ function createFakeStore(options: FakeConfigurationOptions): FakeConfigStore {
         writeConfigs: vi.fn<ConfigStore["writeConfigs"]>().mockResolvedValue(undefined),
         readAcceptedRevision: vi.fn<ConfigStore["readAcceptedRevision"]>().mockResolvedValue(options.acceptedRevision),
         writeAcceptedRevision: vi.fn<ConfigStore["writeAcceptedRevision"]>().mockResolvedValue(undefined),
+        readRejectedRevision: vi.fn<ConfigStore["readRejectedRevision"]>().mockResolvedValue(undefined),
+        writeRejectedRevision: vi.fn<ConfigStore["writeRejectedRevision"]>().mockResolvedValue(undefined),
     };
 }
 
