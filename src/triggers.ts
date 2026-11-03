@@ -26,6 +26,8 @@ export type CommentCreateEvent = Readonly<{
     post?: Readonly<{ id: string; numComments?: number | undefined }> | undefined;
 }>;
 
+export type PostDeleteEvent = Readonly<{ postId?: string | undefined }>;
+
 function getRevisingModerator(event: ModActionEvent): string | undefined {
     if (event.action !== "wikirevise") {
         return undefined;
@@ -88,8 +90,14 @@ export async function onCommentCreate(
     }
 }
 
-export async function onPostDelete(event: Readonly<{ postId: string }>, context: RotationContext): Promise<void> {
-    await forgetDeletedPost(event.postId, rotationPorts(context).livePosts);
+export async function onPostDelete(event: PostDeleteEvent, context: RotationContext): Promise<void> {
+    const postId = event.postId ?? "";
+    if (postId === "") {
+        console.warn("Ignoring a PostDelete event without a post ID.");
+        return;
+    }
+
+    await forgetDeletedPost(postId, rotationPorts(context).livePosts);
 }
 
 // The refresh check starts first on install and upgrade: it is what recovers from any failure after it.
@@ -100,10 +108,12 @@ export async function onAppInstall(_event: unknown, context: ConfigurationContex
     await applyConfigPage(undefined, context);
 }
 
-export async function onAppUpgrade(_event: unknown, context: RotationContext): Promise<void> {
+export async function onAppUpgrade(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
     const ports = rotationPorts(context);
     await startRefreshCheck(ports.refreshJobs);
     await scheduleNextRefresh(ports);
+    // Last, so a refresh it requests for newly stored thread configs is not replaced by the next rotation time.
+    await applyConfigPage(undefined, context);
 }
 
 export async function onRefreshJob(_event: unknown, context: RotationContext): Promise<void> {

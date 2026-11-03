@@ -29,7 +29,7 @@ import {
     onRefreshCheck,
     onRefreshJob,
 } from "./triggers.js";
-import type { CommentCreateEvent, ModActionEvent } from "./triggers.js";
+import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent } from "./triggers.js";
 
 vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
     configurationPorts: vi.fn<typeof configurationPorts>(),
@@ -189,6 +189,20 @@ describe("lifecycle and job triggers", (): void => {
         expect(vi.mocked(forgetDeletedPost)).toHaveBeenCalledExactlyOnceWith("t3_alpha", rotation.ports.livePosts);
     });
 
+    it.for<PostDeleteEvent>([{}, { postId: "" }])(
+        "logs and stops when a deleted post has no ID (%j)",
+        TEST_OPTIONS,
+        async (event: PostDeleteEvent): Promise<void> => {
+            expect.assertions(2);
+
+            const warnSpy = silenceConsole("warn");
+            await onPostDelete(event, wired().devvit.context);
+
+            expect(warnSpy).toHaveBeenCalledExactlyOnceWith("Ignoring a PostDelete event without a post ID.");
+            expect(vi.mocked(forgetDeletedPost)).not.toHaveBeenCalled();
+        },
+    );
+
     it(
         "starts the refresh check, installs the config page, then applies it, on install",
         TEST_OPTIONS,
@@ -207,17 +221,35 @@ describe("lifecycle and job triggers", (): void => {
     );
 
     it(
-        "starts the refresh check, then schedules the next refresh, on upgrade",
+        "starts the refresh check, schedules the next refresh, then applies the config page, on upgrade",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(3);
+            expect.assertions(5);
 
-            const { devvit, rotation } = wired();
+            const { devvit, configuration, rotation } = wired();
             await onAppUpgrade({}, devvit.context);
 
             expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
             expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
+            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith(undefined, configuration);
             expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(scheduleNextRefresh));
+            // A refresh the page requests must come after scheduleNextRefresh, or the next rotation time replaces it.
+            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledBefore(vi.mocked(applyConfigPageRevision));
+        },
+    );
+
+    it(
+        "requests a refresh when the upgrade stores thread configs no trigger applied",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            const { devvit, rotation } = wired();
+            vi.mocked(applyConfigPageRevision).mockResolvedValue("stored");
+            await onAppUpgrade({}, devvit.context);
+
+            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
+            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledBefore(vi.mocked(requestRefresh));
         },
     );
 
