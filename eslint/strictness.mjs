@@ -152,7 +152,18 @@ export const strictness = defineConfig({
                 //     lib.
                 //   fix: carry instants as Temporal.Instant instead of Date.
                 //   until: Devvit's runtime and tsconfig lib include Temporal.
-                allow: [{ from: "lib", name: "Date" }],
+                allow: [
+                    { from: "lib", name: "Date" },
+                    // WORKAROUND: Hono's Context parameters count as readonly
+                    //   cause: Hono hands each route handler a Context, a class whose methods read the request's
+                    //     one-shot body stream and build the response, so no Context parameter can be readonly.
+                    //   blocked: the handler signature is Hono's, and every Node HTTP layer (node:http included)
+                    //     hands handlers a mutable request object.
+                    //   fix: Hono types the handler context as deeply readonly, or the routes stop taking one; then
+                    //     delete this entry.
+                    //   until: the rule passes src/server without this entry.
+                    { from: "package", package: "hono", name: "Context" },
+                ],
                 checkParameterProperties: true,
                 ignoreInferredTypes: false,
                 treatMethodsAsReadonly: false,

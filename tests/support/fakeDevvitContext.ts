@@ -1,7 +1,7 @@
 import type { RedisClient, Scheduler as DevvitScheduler, TriggerContext } from "@devvit/public-api";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
-import type { ConfigurationContext, RotationContext } from "../../src/composition.js";
+import type { ConfigurationContext, DevvitContext, RotationContext } from "../../src/composition.js";
 import type { LockReleaseTransaction, ThreadLocksRedis } from "../../src/rotation/adapters/redisThreadLocks.js";
 
 export interface FakeTransaction {
@@ -47,9 +47,6 @@ export interface FakeScheduler {
     readonly listJobs: Mock<DevvitScheduler["listJobs"]>;
     readonly runJob: Mock<DevvitScheduler["runJob"]>;
 }
-
-/** The Devvit context every handler receives, as the composition root's context types describe it. */
-export type DevvitContext = ConfigurationContext & RotationContext & Readonly<{ appSlug: string }>;
 
 export interface FakeDevvitContext {
     readonly context: DevvitContext;

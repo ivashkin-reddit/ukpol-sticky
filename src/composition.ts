@@ -40,6 +40,9 @@ export type RotationContext = ConfigReadContext &
         scheduler: RefreshScheduler;
     }>;
 
+/** Everything a handler receives: Devvit's clients for the request's installation, its subreddit, and the app's slug. */
+export type DevvitContext = ConfigurationContext & RotationContext & Readonly<{ appSlug: string }>;
+
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {
         notifyModerators: modmailNotifier(context),
