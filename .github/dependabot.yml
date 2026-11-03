@@ -1,0 +1,8 @@
+# Keeps the SHA-pinned GitHub Actions in .github/workflows current. npm gets security updates only (repository
+# settings): the Devvit packages upgrade together, which Dependabot's per-package updates would split.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -188,6 +188,7 @@ export const strictness = defineConfig({
                     "vitest.config.ts",
                     "eslint.config.mjs",
                     "eslint/**",
+                    "scripts/**",
                 ],
                 includeInternal: true,
                 includeTypes: true,

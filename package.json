@@ -11,7 +11,9 @@
     "format:check": "prettier --check .",
     "test": "npm run test:unit",
     "test:unit": "vitest --run src",
-    "test:integration": "vitest --run tests"
+    "test:integration": "vitest --run tests",
+    "build": "vite build",
+    "check:bundle": "node scripts/checkServerBundle.mjs"
   },
   "dependencies": {
     "@devvit/web": "0.15.2",

@@ -1,10 +1,10 @@
 {
-  // Tooling that runs on Node rather than in Devvit: currently the ESLint config.
+  // Tooling that runs on Node rather than in Devvit: the ESLint config and the build checks in scripts/.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
     "types": ["node"]
   },
-  "include": ["eslint.config.mjs", "eslint/*.mjs"]
+  "include": ["eslint.config.mjs", "eslint/*.mjs", "scripts/*.mjs"]
 }

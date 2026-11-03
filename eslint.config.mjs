@@ -35,8 +35,9 @@ export default defineConfig(
         languageOptions: {
             parserOptions: {
                 projectService: {
-                    // The ESLint config runs on Node rather than in Devvit, so it is typed by tsconfig.node.json.
-                    allowDefaultProject: ["eslint.config.mjs", "eslint/*.mjs"],
+                    // The ESLint config and the build checks in scripts/ run on Node rather than in Devvit, so they
+                    // are typed by tsconfig.node.json.
+                    allowDefaultProject: ["eslint.config.mjs", "eslint/*.mjs", "scripts/*.mjs"],
                     defaultProject: "tsconfig.node.json",
                 },
                 tsconfigRootDir: import.meta.dirname,
