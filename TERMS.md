@@ -1,76 +1,59 @@
 # Terms and Conditions
 
-Last updated: 2026-11-03
+Last updated: 3 November 2026
 
-These terms apply to the Reddit app published from this repository, including the app shown in Reddit as `ukpol-megabot`.
+These terms cover Sticky Manager, the Reddit app published from this repository as **ukpol-megabot**. By installing, configuring or using the app, you agree to them.
 
-## What this app does
+## What the app does
 
-This is a simple subreddit moderation app. It lets moderators manage scheduled or comment-cap-limited posts using the subreddit wiki page `stickymgr/config`.
+Sticky Manager lets a subreddit's moderators run recurring threads, configured on the wiki page `stickymgr/config`. Following that configuration, it may:
 
-Based on that config, it may:
+- publish posts, distinguish them, and edit their bodies;
+- sticky and unsticky posts;
+- add distinguished, pinned end-note comments;
+- lock posts when they are replaced;
+- schedule its own refreshes;
+- send the subreddit's moderators modmail when the configuration is rejected or a refresh fails.
 
-- Create new Reddit posts
-- Edit post bodies
-- Sticky or unsticky posts
-- Add distinguished end-note comments
-- Lock posts on rotation
-- Schedule future refresh jobs
-- Rotate posts when the configured schedule or comment cap is reached
-- Send the subreddit's moderators modmail when the config is invalid or a refresh fails
+## Your responsibilities
 
-## Using the app
+You are responsible for ensuring that:
 
-If you install, configure, or use this app, you agree to these terms.
+- you have the moderator permissions needed to install and configure the app in your subreddit;
+- your use of the app complies with Reddit's [User Agreement](https://redditinc.com/policies/user-agreement), the [Reddit Rules](https://redditinc.com/policies/reddit-rules), the Devvit terms and applicable law;
+- the content you configure, including titles, bodies and end notes, is accurate, lawful and appropriate for your community.
 
-If you are using it for a subreddit mod team, you are responsible for making sure you are allowed to do that.
+The app acts on the configuration you provide. You are responsible for that configuration and its results.
 
-## Your responsibility
-
-You are responsible for making sure that:
-
-- You have the moderator permissions required to use the app in the relevant subreddit
-- Your use of the app complies with Reddit's rules, Devvit requirements, and applicable law
-- The wiki configuration and any text the app posts are accurate, lawful, and appropriate for your community
-
-You are also responsible for the content you ask the app to post, including titles, bodies, end notes, schedules, and sticky or lock settings.
-
-The app follows the config you give it. If the config is wrong, incomplete, or unsuitable for your subreddit, that is on you.
-
-## Rules for use
+## Acceptable use
 
 You must not use the app to:
 
-- Break Reddit's rules
-- Break the law
-- Harass, abuse, or target users unlawfully
-- Post unlawful or infringing content
-- Try to interfere with Reddit, Devvit, or the app itself
+- break Reddit's rules or the law;
+- harass, abuse or target users;
+- post unlawful or infringing content;
+- interfere with Reddit, Devvit or the app itself.
 
 ## Availability
 
-This app depends on Reddit and Devvit. It may stop working properly if those platforms change, fail, deprecate something, or rate-limit access.
-
-The app may also change over time, or be removed entirely.
+The app depends on Reddit and Devvit, and may stop working as intended if they change, fail, deprecate features or limit access. The app may change, or be withdrawn, at any time.
 
 ## No warranty
 
-This app is provided as-is. There is no guarantee that it will always work, always post at the exact expected time, or always fit your moderation needs.
+The app is provided "as is", without warranty of any kind. There is no guarantee that it will run without interruption, publish at exactly the scheduled time, or suit your community's needs.
 
-## Liability
+## Limitation of liability
 
-As far as the law allows, the maintainer is not responsible for losses, damage, moderation mistakes, missed posts, duplicate posts, bad config, or other problems caused by using the app.
+To the extent permitted by law, the maintainers are not liable for any loss or damage arising from use of the app. This includes missed, delayed or duplicate posts, moderation errors, and the effects of incorrect configuration.
 
-## Stopping use
+## Ending use
 
-You can stop using the app at any time by uninstalling it or removing its config.
-
-The maintainer can also stop maintaining or publishing the app at any time.
+You may stop using the app at any time by removing its configuration or uninstalling it. The maintainers may stop maintaining or publishing the app at any time.
 
 ## Changes
 
-These terms may change over time. The version in this repository is the current one.
+Changes to these terms are published in this repository, and the date at the top is updated. Continuing to use the app after a change means you accept the updated terms.
 
 ## Contact
 
-If you have questions about these terms, use the GitHub repository where this file is published.
+Questions about these terms can be raised at <https://github.com/ivashkin-reddit/ukpol-sticky/issues>.

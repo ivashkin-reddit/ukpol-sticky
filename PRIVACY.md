@@ -1,71 +1,66 @@
 # Privacy Policy
 
-Last updated: 2026-11-03
+Last updated: 3 November 2026
 
-This policy applies to the Reddit app published from this repository, including the app shown in Reddit as `ukpol-megabot`.
+This policy covers Sticky Manager, the Reddit app published from this repository as **ukpol-megabot**.
 
-## What this app is
+## Summary
 
-This is a simple subreddit moderation app. It reads a subreddit wiki config page and uses Reddit's Devvit APIs to manage recurring or comment-cap-limited threads.
+Sticky Manager is a moderation tool. It reads its configuration from a subreddit wiki page and uses Reddit's Devvit APIs to publish and rotate recurring threads. It processes only what it needs for that job, stores no personal information, and sends nothing outside Reddit.
 
-It only uses the data needed to do that job.
+## Information the app processes
 
-## What data it uses
+- **The config page:** the content and revision IDs of the wiki page `stickymgr/config`.
+- **Wiki revision events:** the username of the moderator who saved the page, used only to address them in a modmail if the page is rejected. Other moderator actions are ignored.
+- **Comment events:** for each new comment in the subreddit, the post it was made on and its author's username. The app uses these only to count comments towards a thread's comment cap and to skip its own comments. It does not use or store comment text.
+- **Post deletion events:** the ID of the deleted post, so the app can stop tracking it.
+- **Managed posts:** the ID, creation time, body and comment count of each post the app manages.
+- **The subreddit's name.**
 
-The app may process:
+## Information the app stores
 
-- The contents of the subreddit wiki page `stickymgr/config`
-- Moderator usernames on wiki update events
-- Subreddit name and subreddit ID
-- Managed post IDs, titles, bodies, creation times, and comment counts
-- Post deletion events
-- Small amounts of stored app state such as the last wiki revision, saved config, active managed post IDs, stored comment-cap values, when refreshes last ran and how they ended, short-lived locks that stop two refreshes changing the same thread at once, and whether moderators have already been alerted to a current problem
+The app keeps a small amount of state in the storage Devvit provides for each installation:
 
-## What it uses that data for
+- the accepted thread configs, and the IDs of the most recently accepted and rejected config page revisions;
+- the ID of each thread's current post, and its comment cap;
+- the refresh status: when refreshes last ran and succeeded, how the last one ended, and when the next is due;
+- short-lived locks that stop two refreshes changing the same thread at once;
+- markers recording that moderators have already been alerted to an ongoing problem.
 
-The app uses that data to:
+None of this identifies a Reddit user.
 
-- Validate config changes
-- Schedule refresh jobs
-- Create, update, sticky, unsticky, lock, and rotate managed posts
-- Detect when a thread has hit its comment cap
-- Send the subreddit's moderators modmail when the config is invalid or a refresh fails
-- Clean up stored state when configs or tracked posts change
+## How the information is used
 
-## What it does not do
+The app uses this information to:
 
-This app does not intentionally:
+- check configuration changes;
+- publish, edit, distinguish, sticky, unsticky and lock managed posts, and add end-note comments;
+- detect when a thread reaches its comment cap or its scheduled time;
+- send the subreddit's moderators modmail when the configuration is rejected or a refresh fails;
+- schedule its next refresh.
 
-- Sell data
-- Run ads
-- Build user profiles
-- Ask users for extra personal information
-- Send data to unrelated third parties
+## Sharing
 
-## Where processing happens
+The app runs entirely on Reddit's Devvit platform and makes no requests to services outside Reddit. It does not sell data, show ads, build profiles of users, or share data with third parties.
 
-This app runs on Reddit's Devvit platform, so normal app processing happens through Reddit and Devvit services.
+## Retention
 
-## Data retention
+- Locks expire after two minutes.
+- A post's comment-cap record is deleted when the post is replaced, and expires after 28 days in any case.
+- A thread's records are deleted when the thread is removed from the config page or its post is deleted.
+- Other state is kept until it is replaced.
+- Uninstalling the app deletes everything it stores in that subreddit.
 
-The app keeps only the small amount of stored state it needs to keep working. Some stored values expire automatically, and some remain until they are replaced, removed, or the app is uninstalled.
-
-Reddit may also keep its own records under Reddit's own policies.
+Reddit keeps its own records under the [Reddit Privacy Policy](https://www.reddit.com/policies/privacy-policy).
 
 ## Your choices
 
-Subreddit moderators control this app by editing the wiki config, disabling configs, removing configs, or uninstalling the app.
-
-If you are a normal Reddit user rather than a moderator, Reddit's own privacy policy is the main policy that applies to your Reddit account data.
-
-## Security
-
-The app is meant to use only the Reddit and Devvit permissions it needs for moderation automation and app storage. No system is perfect, but the app is designed to keep stored data limited.
+Moderators control the app through the config page, and can disable or remove threads, or uninstall the app, at any time. For data in your Reddit account, Reddit's own privacy policy applies.
 
 ## Changes
 
-This policy may change over time. The version in this repository is the current one.
+Changes to this policy are published in this repository, and the date at the top is updated.
 
 ## Contact
 
-If you have questions about this policy, use the GitHub repository where this file is published.
+Questions about this policy can be raised at <https://github.com/ivashkin-reddit/ukpol-sticky/issues>.

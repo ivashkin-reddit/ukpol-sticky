@@ -3,8 +3,9 @@ import type { ConfigPage } from "./ports.js";
 // The commented example written to a new config page: the format moderators follow when defining thread configs.
 const CONFIG_PAGE_TEMPLATE = [
     "# Sticky Manager configuration file",
-    "# This file is used to configure sticky posts for your subreddit.",
-    "# Each configuration entry defines a sticky post with its own settings, using YAML.",
+    "# Each entry on this page defines one recurring thread, written in YAML. Sticky Manager publishes each thread's",
+    "# posts, stickies them if asked, and replaces them on their schedule or when they reach maxComments.",
+    "# Full reference: https://github.com/ivashkin-reddit/ukpol-sticky#configuration",
     "",
     "# Example:",
     "",
@@ -23,14 +24,14 @@ const CONFIG_PAGE_TEMPLATE = [
     "#     The megathread has ended. Please continue the discussion in the latest thread.",
     "# lockOnRefresh: true",
     "",
-    "# Omit both frequency and postTime to keep a megathread open until maxComments is reached.",
+    "# Omit both frequency and postTime to keep a thread open until it reaches maxComments.",
     "# frequency options: daily, mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays",
-    "# postTime format: HH:mm (24-hour format). This is in UTC.",
-    "# sticky is optional and controls whether the post is stickied when it is created.",
-    "# endNote is optional and will create a sticky comment when the post is refreshed.",
-    "# lockOnRefresh is optional and will lock the post when it is refreshed.",
+    "# postTime format: HH:mm (24-hour), always in UTC.",
+    "# sticky is optional and stickies each new post.",
+    "# endNote is optional and is pinned as a comment on the old post once its replacement is published.",
+    "# lockOnRefresh is optional and locks the old post when it is replaced.",
     "",
-    "# Just like Automoderator, you can create multiple sticky posts by adding more entries, separated with ---.",
+    "# As with AutoModerator, define more threads by adding entries separated by a line containing only ---.",
 ].join("\n");
 
 /** Writes the commented example to the config page, which becomes editable by moderators only. */
