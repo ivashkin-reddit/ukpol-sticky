@@ -54,7 +54,7 @@ A key left empty in YAML parses as null, and ajv admits null for every optional 
 
 - Prettier owns formatting: `npm run format` writes it, CI runs `npm run format:check`. ESLint carries no formatting rules (eslint-config-prettier), and [.gitattributes](.gitattributes) keeps LF line endings so the check also passes on Windows checkouts.
 - [eslint.config.mjs](eslint.config.mjs) starts from every rule (ESLint `all`, typescript-eslint `all` plus its strict and stylistic typed presets, import-x, regexp, eslint-comments, vitest `all`); the files in [eslint/](eslint) tighten them by concern and turn a rule off only with its reason beside it. A dependency upgrade can add rules; fix their findings as part of the upgrade.
-- Every suppression or workaround carries a `WORKAROUND:` block (`cause`, `blocked`, `fix`, `until`) directly above it; `grep -rn "WORKAROUND:" --exclude-dir=node_modules .` is the ledger. The only allowed directive is `eslint-disable-next-line` with a `--` reason.
+- Every suppression or workaround carries a `WORKAROUND:` block (`cause`, `blocked`, `fix`, `until`) directly above it (in `package.json`, which has no comments, in a `"//"` key beside it); `grep -rn "WORKAROUND:" --exclude-dir=node_modules .` is the ledger. The only allowed directive is `eslint-disable-next-line` with a `--` reason.
 - Adapters take narrow context types ([src/platform/index.ts](src/platform/index.ts) and the `*Context` types beside each adapter) that name only the Devvit methods they call, and Devvit's real context satisfies them. Tests build exact typed fakes from [tests/support](tests/support), with no `as` casts. Use-case tests fake ports (`fakeRotationPorts.ts`, `fakeConfigurationPorts.ts`). Adapter and edge tests fake the Devvit context (`fakeDevvitContext.ts`).
 - vitest's asymmetric matchers (`expect.any`, `expect.objectContaining`) are typed `any`, which the unsafe-`any` rules reject; assert exact arguments, or read `mock.lastCall`.
 - `eslint --fix` on tests rewrites `toHaveBeenCalled()` and `toHaveBeenCalledTimes(1)` into `toHaveBeenCalledWith()` and `toHaveBeenCalledExactlyOnceWith()`, which assert the mock received no arguments. Write the expected arguments by hand instead.
@@ -62,8 +62,12 @@ A key left empty in YAML parses as null, and ajv admits null for every optional 
 ## Dependencies
 
 - TypeScript stays on 6.0.x until `typescript-eslint`'s peer range admits 7 (`@vitest/eslint-plugin` also needs ≥6).
-- Security fixes: `npm audit fix`, and Devvit upgrades to its `latest` dist-tag. `npm audit fix --force` breaks the project: it installs `devvit@1.0.0`, a 2022 placeholder, and downgrades ESLint.
-- As of November 2026 the remaining audit findings have no fixed release: an old `minimatch` (via Devvit's `twirp-ts`, and via ESLint and its plugins, dev only) and `tmp` (via the Devvit CLI, dev only). Recheck them on each upgrade.
+- Security fixes: `npm audit fix`, and Devvit upgrades to its `latest` dist-tag. `npm audit fix --force` breaks the project: it installs `devvit@1.0.0`, a 2022 placeholder, and downgrades ESLint. Dependabot sometimes proposes the same downgrade; close those PRs.
+- `package.json` overrides `tmp` under `external-editor` (from the Devvit CLI's `inquirer`) to a patched release; its `//` key holds the WORKAROUND block.
+- As of November 2026 the remaining audit findings are `minimatch` below 11.0.1 (GHSA-g3hv-75wg-m249), and no consumer accepts 11 yet:
+    - ESLint, typescript-eslint and `eslint-plugin-import-x` ask for ^9 or ^10, and the Devvit CLI's `filelist` for ^5 (all dev only).
+    - Devvit's `twirp-ts` brings it in through `dot-object`'s `glob@7`, which only `dot-object`'s command-line tool loads, so it never reaches the app.
+    - 11 drops what `import-x` and `glob@7` rely on (`makeRe`, and the regular expressions in `Minimatch.set`), so an override would break them. Recheck on each upgrade.
 - npm reports blocked install scripts for `esbuild`, `protobufjs` and `core-js`. Build and tests work without them; leave them unapproved.
 - On Windows, `npm ci` fails with EPERM while an editor's ESLint server has loaded `@unrs/resolver-binding-*/*.node` (the import resolver's native module). Stop the ESLint server, or close the editor, first.
 
