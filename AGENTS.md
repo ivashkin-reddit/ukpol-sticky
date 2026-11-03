@@ -18,7 +18,7 @@ Behaviour on Reddit itself is only verifiable with `npx devvit playtest`, which 
 
 ## Live state
 
-Redis key strings (in [src/config.ts](src/config.ts), [src/wikiConfig.ts](src/wikiConfig.ts) and [src/stickyManager.ts](src/stickyManager.ts)) and scheduler job names (in [src/constants.ts](src/constants.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `handleAppUpgrade` migrates it.
+Redis key strings (in [src/config.ts](src/config.ts), [src/wikiConfig.ts](src/wikiConfig.ts) and [src/trackedPosts.ts](src/trackedPosts.ts)) and scheduler job names (in [src/constants.ts](src/constants.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `handleAppUpgrade` migrates it.
 
 ## Config fields
 
@@ -28,6 +28,7 @@ A key left empty in YAML parses as null, and ajv admits null for every optional 
 
 ## Strictness
 
+- Prettier owns formatting: `npm run format` writes it, CI runs `npm run format:check`. ESLint carries no formatting rules (eslint-config-prettier), and [.gitattributes](.gitattributes) keeps LF line endings so the check also passes on Windows checkouts.
 - [eslint.config.mjs](eslint.config.mjs) starts from every rule (ESLint `all`, typescript-eslint `all` plus its strict and stylistic typed presets, import-x, regexp, eslint-comments, vitest `all`) and turns a rule off only with its reason beside it. A dependency upgrade can add rules; fix their findings as part of the upgrade.
 - Every suppression or workaround carries a `WORKAROUND:` block (`cause`, `blocked`, `fix`, `until`) directly above it; `grep -rn "WORKAROUND:" --exclude-dir=node_modules .` is the ledger. The only allowed directive is `eslint-disable-next-line` with a `--` reason.
 - Handlers take narrow context types ([src/ports.ts](src/ports.ts) and the `*Context` types beside each handler) that name only the Devvit methods they call. Devvit's real context satisfies them, and tests build exact typed fakes from [tests/support](tests/support) — no `as` casts.

@@ -32,7 +32,9 @@ describe(renderTitle, (): void => {
     it("replaces the date token with the formatted date", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
-        expect(renderTitle("Daily thread for {{date EEEE d MMMM yyyy}}", NOW)).toBe("Daily thread for Tuesday 21 April 2026");
+        expect(renderTitle("Daily thread for {{date EEEE d MMMM yyyy}}", NOW)).toBe(
+            "Daily thread for Tuesday 21 April 2026",
+        );
     });
 
     it("keeps dollar sequences in the formatted date literally", TEST_OPTIONS, (): void => {

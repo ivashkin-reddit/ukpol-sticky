@@ -26,29 +26,32 @@ interface WikiRevision {
     readonly revisionId: string;
 }
 
-export type WikiUpdateContext = RefreshJobContext & SubredditNamePort & Readonly<{
-    redis: RedisPort<"del" | "get" | "set">;
-    reddit: Readonly<{
-        getWikiPage: (subredditName: string, page: string) => Promise<WikiRevision>;
-        modMail: Readonly<Pick<TriggerContext["reddit"]["modMail"], "createModInboxConversation">>;
+export type WikiUpdateContext = RefreshJobContext &
+    SubredditNamePort &
+    Readonly<{
+        redis: RedisPort<"del" | "get" | "set">;
+        reddit: Readonly<{
+            getWikiPage: (subredditName: string, page: string) => Promise<WikiRevision>;
+            modMail: Readonly<Pick<TriggerContext["reddit"]["modMail"], "createModInboxConversation">>;
+        }>;
+        subredditId: string;
     }>;
-    subredditId: string;
-}>;
 
 interface ConfigProblem {
     readonly subject: string;
     readonly bodyMarkdown: string;
 }
 
-type ConfigPageResult = Readonly<{ kind: "invalid"; problem: ConfigProblem }> | Readonly<{ kind: "valid"; configs: readonly Config[] }>;
+type ConfigPageResult =
+    Readonly<{ kind: "invalid"; problem: ConfigProblem }> | Readonly<{ kind: "valid"; configs: readonly Config[] }>;
 
 type MarkdownBlock = Readonly<{ blockquote: string }> | Readonly<{ p: string }>;
 
-function invalid (subject: string, body: readonly MarkdownBlock[]): ConfigPageResult {
+function invalid(subject: string, body: readonly MarkdownBlock[]): ConfigPageResult {
     return { kind: "invalid", problem: { subject, bodyMarkdown: json2md([...body]) } };
 }
 
-function checkSchedule (config: Config, moderatorName: string): ConfigPageResult | undefined {
+function checkSchedule(config: Config, moderatorName: string): ConfigPageResult | undefined {
     const hasFrequency = config.frequency !== undefined;
     const hasPostTime = config.postTime != null;
     if (hasFrequency === hasPostTime) {
@@ -56,11 +59,13 @@ function checkSchedule (config: Config, moderatorName: string): ConfigPageResult
     }
 
     return invalid(`Incomplete schedule in config ${config.name}`, [
-        { p: `/u/${moderatorName}, config ${config.name} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.` },
+        {
+            p: `/u/${moderatorName}, config ${config.name} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.`,
+        },
     ]);
 }
 
-function checkDateFormat (config: Config, moderatorName: string): ConfigPageResult | undefined {
+function checkDateFormat(config: Config, moderatorName: string): ConfigPageResult | undefined {
     const token = findDateToken(config.title);
     if (token === undefined) {
         return undefined;
@@ -83,7 +88,7 @@ function checkDateFormat (config: Config, moderatorName: string): ConfigPageResu
     }
 }
 
-function checkConfigs (configs: readonly Config[], moderatorName: string): ConfigPageResult {
+function checkConfigs(configs: readonly Config[], moderatorName: string): ConfigPageResult {
     for (const config of configs) {
         const problem = checkSchedule(config, moderatorName) ?? checkDateFormat(config, moderatorName);
         if (problem !== undefined) {
@@ -93,7 +98,9 @@ function checkConfigs (configs: readonly Config[], moderatorName: string): Confi
 
     if (uniq(configs.map((config): string => config.name)).length !== configs.length) {
         return invalid(`Duplicate config names in wiki page ${CONFIG_PAGE}`, [
-            { p: `/u/${moderatorName}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.` },
+            {
+                p: `/u/${moderatorName}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.`,
+            },
         ]);
     }
 
@@ -105,9 +112,16 @@ interface YamlDocument {
     readonly toJSON: () => unknown;
 }
 
-function checkYaml (documents: readonly YamlDocument[], moderatorName: string, subredditName: string): ConfigPageResult | undefined {
-    const parseErrors = documents.flatMap((document: YamlDocument, index: number): string[] => document.errors
-        .map((error: Readonly<{ message: string }>): string => `Document ${String(index + 1)}: ${error.message}`));
+function checkYaml(
+    documents: readonly YamlDocument[],
+    moderatorName: string,
+    subredditName: string,
+): ConfigPageResult | undefined {
+    const parseErrors = documents.flatMap((document: YamlDocument, index: number): string[] =>
+        document.errors.map(
+            (error: Readonly<{ message: string }>): string => `Document ${String(index + 1)}: ${error.message}`,
+        ),
+    );
     if (parseErrors.length === 0) {
         return undefined;
     }
@@ -121,7 +135,7 @@ function checkYaml (documents: readonly YamlDocument[], moderatorName: string, s
     ]);
 }
 
-function checkSchema (values: readonly unknown[], moderatorName: string, subredditName: string): ConfigPageResult {
+function checkSchema(values: readonly unknown[], moderatorName: string, subredditName: string): ConfigPageResult {
     const validation = validateConfigList(values);
     if (validation.kind === "invalid") {
         console.error(`Invalid config in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, validation.errors);
@@ -136,14 +150,20 @@ function checkSchema (values: readonly unknown[], moderatorName: string, subredd
     return checkConfigs(validation.configs, moderatorName);
 }
 
-function checkConfigPage (content: string, moderatorName: string, subredditName: string): ConfigPageResult {
+function checkConfigPage(content: string, moderatorName: string, subredditName: string): ConfigPageResult {
     const documents = parseAllDocuments(content);
     // Empty documents parse to null; compact drops them before validating.
-    return checkYaml(documents, moderatorName, subredditName)
-        ?? checkSchema(compact(documents.map((document: YamlDocument): unknown => document.toJSON())), moderatorName, subredditName);
+    return (
+        checkYaml(documents, moderatorName, subredditName) ??
+        checkSchema(
+            compact(documents.map((document: YamlDocument): unknown => document.toJSON())),
+            moderatorName,
+            subredditName,
+        )
+    );
 }
 
-function getRevisingModerator (event: WikiUpdateEvent): string | undefined {
+function getRevisingModerator(event: WikiUpdateEvent): string | undefined {
     if (event.action !== "wikirevise") {
         return undefined;
     }
@@ -158,7 +178,7 @@ function getRevisingModerator (event: WikiUpdateEvent): string | undefined {
     return moderatorName;
 }
 
-async function fetchConfigPage (context: WikiUpdateContext, subredditName: string): Promise<WikiRevision | undefined> {
+async function fetchConfigPage(context: WikiUpdateContext, subredditName: string): Promise<WikiRevision | undefined> {
     try {
         return await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
     } catch (error: unknown) {
@@ -172,7 +192,7 @@ interface ChangedConfigPage {
     readonly subredditName: string;
 }
 
-async function fetchChangedConfigPage (context: WikiUpdateContext): Promise<ChangedConfigPage | undefined> {
+async function fetchChangedConfigPage(context: WikiUpdateContext): Promise<ChangedConfigPage | undefined> {
     const lastRevision = await context.redis.get(LAST_REVISION_KEY);
     const subredditName = await getSubredditName(context);
     const revision = await fetchConfigPage(context, subredditName);
@@ -188,7 +208,7 @@ async function fetchChangedConfigPage (context: WikiUpdateContext): Promise<Chan
     return { revision, subredditName };
 }
 
-async function reportProblem (context: WikiUpdateContext, problem: ConfigProblem): Promise<void> {
+async function reportProblem(context: WikiUpdateContext, problem: ConfigProblem): Promise<void> {
     await context.reddit.modMail.createModInboxConversation({
         subredditId: asT5ID(context.subredditId),
         subject: problem.subject,
@@ -196,14 +216,14 @@ async function reportProblem (context: WikiUpdateContext, problem: ConfigProblem
     });
 }
 
-async function saveConfig (context: WikiUpdateContext, revisionId: string, configs: readonly Config[]): Promise<void> {
+async function saveConfig(context: WikiUpdateContext, revisionId: string, configs: readonly Config[]): Promise<void> {
     await context.redis.set(LAST_REVISION_KEY, revisionId);
     await storeConfig(context, configs);
     await cancelRefreshJobs(context);
     await scheduleRefresh(context, addSeconds(new Date(), FIRST_REFRESH_DELAY_SECONDS));
 }
 
-export async function handleWikiUpdate (event: WikiUpdateEvent, context: WikiUpdateContext): Promise<void> {
+export async function handleWikiUpdate(event: WikiUpdateEvent, context: WikiUpdateContext): Promise<void> {
     const moderatorName = getRevisingModerator(event);
     if (moderatorName === undefined) {
         return;

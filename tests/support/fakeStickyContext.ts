@@ -37,7 +37,7 @@ export interface FakeStickyContext {
 }
 
 /** A StickyContext whose every dependency is a typed mock with an empty-store default. */
-export function createFakeStickyContext (subredditName?: string): FakeStickyContext {
+export function createFakeStickyContext(subredditName?: string): FakeStickyContext {
     const redis: FakeRedis = {
         del: vi.fn<RedisClient["del"]>().mockResolvedValue(undefined),
         get: vi.fn<RedisClient["get"]>().mockResolvedValue(undefined),
@@ -49,7 +49,9 @@ export function createFakeStickyContext (subredditName?: string): FakeStickyCont
         set: vi.fn<RedisClient["set"]>().mockResolvedValue("OK"),
     };
     const reddit: FakeReddit = {
-        modMail: { createModInboxConversation: vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id") },
+        modMail: {
+            createModInboxConversation: vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id"),
+        },
         getCurrentSubredditName: vi.fn<() => Promise<string>>().mockResolvedValue("currentsub"),
         getPostById: vi.fn<StickyContext["reddit"]["getPostById"]>(),
         submitPost: vi.fn<StickyContext["reddit"]["submitPost"]>(),
@@ -60,7 +62,12 @@ export function createFakeStickyContext (subredditName?: string): FakeStickyCont
         runJob: vi.fn<DevvitScheduler["runJob"]>().mockResolvedValue("job-id"),
     };
 
-    return { context: { redis, reddit, scheduler, subredditId: "t5_testsub", subredditName }, redis, reddit, scheduler };
+    return {
+        context: { redis, reddit, scheduler, subredditId: "t5_testsub", subredditName },
+        redis,
+        reddit,
+        scheduler,
+    };
 }
 
 export interface FakePost {
@@ -77,7 +84,7 @@ export interface FakePost {
 export type FakePostFields = Readonly<Pick<ManagedPost, "body" | "createdAt" | "id" | "numberOfComments" | "stickied">>;
 
 /** A ManagedPost whose actions are typed mocks; a comment added to it resolves to a comment with its own mock. */
-export function createFakePost (fields: FakePostFields): FakePost {
+export function createFakePost(fields: FakePostFields): FakePost {
     const commentDistinguish = vi.fn<ManagedComment["distinguish"]>().mockResolvedValue(undefined);
     const addComment = vi.fn<ManagedPost["addComment"]>().mockResolvedValue({ distinguish: commentDistinguish });
     const distinguish = vi.fn<ManagedPost["distinguish"]>().mockResolvedValue(undefined);

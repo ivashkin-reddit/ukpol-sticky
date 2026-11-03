@@ -10,9 +10,17 @@ const CONFIG_STORAGE = "Configuration";
 const UNREADABLE_CONFIG_ALERT_KEY = "UnreadableConfigAlertSent";
 
 // Sundays first, so each weekly frequency's index is its getUTCDay() value.
-export const WEEKLY_FREQUENCIES = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"] as const;
+export const WEEKLY_FREQUENCIES = [
+    "sundays",
+    "mondays",
+    "tuesdays",
+    "wednesdays",
+    "thursdays",
+    "fridays",
+    "saturdays",
+] as const;
 export const SCHEDULE_FREQUENCIES = ["daily", ...WEEKLY_FREQUENCIES] as const;
-export type ScheduleFrequency = typeof SCHEDULE_FREQUENCIES[number];
+export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
 
 // HH:mm, 24-hour, interpreted as UTC.
 const POST_TIME = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/u;
@@ -59,9 +67,10 @@ const configSchema: JSONSchemaType<Config[]> = {
 const ajv = new Ajv();
 const validateConfigs = ajv.compile(configSchema);
 
-export type ConfigValidation = Readonly<{ kind: "invalid"; errors: string }> | Readonly<{ kind: "valid"; configs: readonly Config[] }>;
+export type ConfigValidation =
+    Readonly<{ kind: "invalid"; errors: string }> | Readonly<{ kind: "valid"; configs: readonly Config[] }>;
 
-export function validateConfigList (values: unknown): ConfigValidation {
+export function validateConfigList(values: unknown): ConfigValidation {
     if (!validateConfigs(values)) {
         return { kind: "invalid", errors: ajv.errorsText(validateConfigs.errors) };
     }
@@ -75,7 +84,7 @@ export interface PostTime {
 }
 
 /** Throws if `postTime` is not HH:mm; configs that passed validation always are. */
-export function parsePostTime (postTime: string): PostTime {
+export function parsePostTime(postTime: string): PostTime {
     const groups = POST_TIME.exec(postTime)?.groups;
     const hours = groups?.["hours"];
     const minutes = groups?.["minutes"];
@@ -97,13 +106,16 @@ export type ConfigReadContext = Readonly<{
     subredditId: string;
 }>;
 
-export async function storeConfig (context: Readonly<{ redis: RedisPort<"del" | "set"> }>, configs: readonly Config[]): Promise<void> {
+export async function storeConfig(
+    context: Readonly<{ redis: RedisPort<"del" | "set"> }>,
+    configs: readonly Config[],
+): Promise<void> {
     await context.redis.set(CONFIG_STORAGE, JSON.stringify(configs));
     // The stored config is readable again, so a later breakage alerts moderators again.
     await context.redis.del(UNREADABLE_CONFIG_ALERT_KEY);
 }
 
-function parseStoredJson (stored: string): unknown {
+function parseStoredJson(stored: string): unknown {
     try {
         const parsed: unknown = JSON.parse(stored);
         return parsed;
@@ -112,21 +124,26 @@ function parseStoredJson (stored: string): unknown {
             throw error;
         }
 
-        throw new UnreadableConfigError(`Stored configuration (Redis key "${CONFIG_STORAGE}") is not JSON: ${error.message}`, { cause: error });
+        throw new UnreadableConfigError(
+            `Stored configuration (Redis key "${CONFIG_STORAGE}") is not JSON: ${error.message}`,
+            { cause: error },
+        );
     }
 }
 
-function parseStoredConfig (stored: string): readonly Config[] {
+function parseStoredConfig(stored: string): readonly Config[] {
     const validation = validateConfigList(parseStoredJson(stored));
     if (validation.kind === "invalid") {
-        throw new UnreadableConfigError(`Stored configuration (Redis key "${CONFIG_STORAGE}") is invalid: ${validation.errors}`);
+        throw new UnreadableConfigError(
+            `Stored configuration (Redis key "${CONFIG_STORAGE}") is invalid: ${validation.errors}`,
+        );
     }
 
     return validation.configs;
 }
 
 /** Sends moderators one modmail per broken stored config; the NX write lets concurrent readers agree on one sender. */
-async function alertModeratorsOnce (context: ConfigReadContext, reason: string): Promise<void> {
+async function alertModeratorsOnce(context: ConfigReadContext, reason: string): Promise<void> {
     const claim = await context.redis.set(UNREADABLE_CONFIG_ALERT_KEY, new Date().toISOString(), { nx: true });
     // Redis answers a declined NX write with nil, which Devvit returns as "".
     if (claim !== "OK") {
@@ -146,7 +163,9 @@ async function alertModeratorsOnce (context: ConfigReadContext, reason: string):
     } catch (sendError: unknown) {
         // Release the claim, so the next read retries the alert.
         await context.redis.del(UNREADABLE_CONFIG_ALERT_KEY);
-        throw new Error(`Could not alert moderators that the stored config cannot be read (${reason})`, { cause: sendError });
+        throw new Error(`Could not alert moderators that the stored config cannot be read (${reason})`, {
+            cause: sendError,
+        });
     }
 }
 
@@ -156,7 +175,7 @@ async function alertModeratorsOnce (context: ConfigReadContext, reason: string):
  * config was removed" and forget all tracked posts. Moderators get one modmail asking them to re-save the wiki page,
  * which stores a fresh, validated config.
  */
-export async function getConfig (context: ConfigReadContext): Promise<readonly Config[]> {
+export async function getConfig(context: ConfigReadContext): Promise<readonly Config[]> {
     const stored = await context.redis.get(CONFIG_STORAGE);
     if (stored === undefined) {
         console.warn("No configuration found in storage. Returning empty config.");

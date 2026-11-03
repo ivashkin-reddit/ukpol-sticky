@@ -48,24 +48,34 @@ const CONFIG_PAGE_TEMPLATE = [
     "# Just like Automoderator, you can create multiple sticky posts by adding more entries, separated with ---.",
 ].join("\n");
 
-export type InstallContext = SubredditNamePort & Readonly<{
-    reddit: Readonly<{
-        updateWikiPage: (options: Readonly<{ content: string; page: string; subredditName: string }>) => Promise<unknown>;
-        updateWikiPageSettings: (options: Readonly<{
-            listed: boolean;
-            page: string;
-            permLevel: WikiPagePermissionLevel;
-            subredditName: string;
-        }>) => Promise<unknown>;
+export type InstallContext = SubredditNamePort &
+    Readonly<{
+        reddit: Readonly<{
+            updateWikiPage: (
+                options: Readonly<{ content: string; page: string; subredditName: string }>,
+            ) => Promise<unknown>;
+            updateWikiPageSettings: (
+                options: Readonly<{
+                    listed: boolean;
+                    page: string;
+                    permLevel: WikiPagePermissionLevel;
+                    subredditName: string;
+                }>,
+            ) => Promise<unknown>;
+        }>;
     }>;
-}>;
 
-export async function handleAppInstall (_event: unknown, context: InstallContext): Promise<void> {
+export async function handleAppInstall(_event: unknown, context: InstallContext): Promise<void> {
     const subredditName = await getSubredditName(context);
     await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content: CONFIG_PAGE_TEMPLATE });
-    await context.reddit.updateWikiPageSettings({ subredditName, page: CONFIG_PAGE, permLevel: MODS_ONLY, listed: true });
+    await context.reddit.updateWikiPageSettings({
+        subredditName,
+        page: CONFIG_PAGE,
+        permLevel: MODS_ONLY,
+        listed: true,
+    });
 }
 
-export async function handleAppUpgrade (_event: unknown, context: StickyContext): Promise<void> {
+export async function handleAppUpgrade(_event: unknown, context: StickyContext): Promise<void> {
     await scheduleNextRefresh(context);
 }

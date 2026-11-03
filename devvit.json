@@ -3,13 +3,7 @@
   "name": "ukpol-megabot",
   "blocks": {
     "entry": "src/main.ts",
-    "triggers": [
-      "onModAction",
-      "onCommentCreate",
-      "onPostDelete",
-      "onAppInstall",
-      "onAppUpgrade"
-    ]
+    "triggers": ["onModAction", "onCommentCreate", "onPostDelete", "onAppInstall", "onAppUpgrade"]
   },
   "permissions": {
     "redis": true,

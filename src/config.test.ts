@@ -16,15 +16,15 @@ const MINIMAL_CONFIG: Config = {
     body: "Hello world",
 };
 
-const SCHEMA_ERROR_MESSAGE = "Stored configuration (Redis key \"Configuration\") is invalid: data must be array";
+const SCHEMA_ERROR_MESSAGE = 'Stored configuration (Redis key "Configuration") is invalid: data must be array';
 
-function fakesStoring (stored: string | undefined): FakeStickyContext {
+function fakesStoring(stored: string | undefined): FakeStickyContext {
     const fakes = createFakeStickyContext();
     fakes.redis.get.mockResolvedValue(stored);
     return fakes;
 }
 
-function syntaxErrorFrom (text: string): SyntaxError {
+function syntaxErrorFrom(text: string): SyntaxError {
     try {
         JSON.parse(text);
     } catch (error: unknown) {
@@ -48,14 +48,22 @@ describe(getConfig, (): void => {
         expect(fakes.reddit.modMail.createModInboxConversation).not.toHaveBeenCalled();
     });
 
-    it("rejects as unreadable, keeping the parse error as the cause, when the stored text is not JSON", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "rejects as unreadable, keeping the parse error as the cause, when the stored text is not JSON",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
 
-        const reading = getConfig(fakesStoring("{").context);
+            const reading = getConfig(fakesStoring("{").context);
 
-        await expect(reading).rejects.toThrow(new UnreadableConfigError(`Stored configuration (Redis key "Configuration") is not JSON: ${syntaxErrorFrom("{").message}`));
-        await expect(reading).rejects.toHaveProperty("cause", syntaxErrorFrom("{"));
-    });
+            await expect(reading).rejects.toThrow(
+                new UnreadableConfigError(
+                    `Stored configuration (Redis key "Configuration") is not JSON: ${syntaxErrorFrom("{").message}`,
+                ),
+            );
+            await expect(reading).rejects.toHaveProperty("cause", syntaxErrorFrom("{"));
+        },
+    );
 
     it("rejects as unreadable when the stored JSON is not a config list", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -69,7 +77,9 @@ describe(getConfig, (): void => {
     it("returns the stored configs when they are valid", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        await expect(getConfig(fakesStoring(JSON.stringify([MINIMAL_CONFIG])).context)).resolves.toStrictEqual([MINIMAL_CONFIG]);
+        await expect(getConfig(fakesStoring(JSON.stringify([MINIMAL_CONFIG])).context)).resolves.toStrictEqual([
+            MINIMAL_CONFIG,
+        ]);
     });
 });
 
@@ -81,7 +91,11 @@ describe("getConfig with an unreadable stored config", (): void => {
         const fakes = fakesStoring("{}");
 
         await expect(getConfig(fakes.context)).rejects.toBeInstanceOf(UnreadableConfigError);
-        expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent", "2026-04-21T10:00:00.000Z", { nx: true });
+        expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith(
+            "UnreadableConfigAlertSent",
+            "2026-04-21T10:00:00.000Z",
+            { nx: true },
+        );
         expect(fakes.reddit.modMail.createModInboxConversation).toHaveBeenCalledExactlyOnceWith({
             subredditId: "t5_testsub",
             subject: "Sticky Manager cannot read its stored config",
@@ -104,40 +118,54 @@ describe("getConfig with an unreadable stored config", (): void => {
         expect(fakes.reddit.modMail.createModInboxConversation).not.toHaveBeenCalled();
     });
 
-    it("releases the claim and reports both failures when the modmail cannot be sent", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
+    it(
+        "releases the claim and reports both failures when the modmail cannot be sent",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const fakes = fakesStoring("{}");
-        const sendError = new Error("modmail unavailable");
-        fakes.reddit.modMail.createModInboxConversation.mockRejectedValue(sendError);
-        const reading = getConfig(fakes.context);
+            const fakes = fakesStoring("{}");
+            const sendError = new Error("modmail unavailable");
+            fakes.reddit.modMail.createModInboxConversation.mockRejectedValue(sendError);
+            const reading = getConfig(fakes.context);
 
-        await expect(reading).rejects.toThrow(new Error(`Could not alert moderators that the stored config cannot be read (${SCHEMA_ERROR_MESSAGE})`));
-        await expect(reading).rejects.toHaveProperty("cause", sendError);
-        expect(fakes.redis.del).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
-    });
+            await expect(reading).rejects.toThrow(
+                new Error(`Could not alert moderators that the stored config cannot be read (${SCHEMA_ERROR_MESSAGE})`),
+            );
+            await expect(reading).rejects.toHaveProperty("cause", sendError);
+            expect(fakes.redis.del).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
+        },
+    );
 });
 
 describe(storeConfig, (): void => {
-    it("stores the configs and clears the alert claim, so a later breakage alerts again", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "stores the configs and clears the alert claim, so a later breakage alerts again",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
 
-        const fakes = createFakeStickyContext();
-        await storeConfig(fakes.context, [MINIMAL_CONFIG]);
+            const fakes = createFakeStickyContext();
+            await storeConfig(fakes.context, [MINIMAL_CONFIG]);
 
-        expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("Configuration", JSON.stringify([MINIMAL_CONFIG]));
-        expect(fakes.redis.del).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
-    });
+            expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("Configuration", JSON.stringify([MINIMAL_CONFIG]));
+            expect(fakes.redis.del).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
+        },
+    );
 });
 
 describe(validateConfigList, (): void => {
-    it.for(["postTime", "sticky", "endNote", "lockOnRefresh"])("accepts null for the optional key %s", TEST_OPTIONS, (key: string): void => {
-        expect.assertions(1);
+    it.for(["postTime", "sticky", "endNote", "lockOnRefresh"])(
+        "accepts null for the optional key %s",
+        TEST_OPTIONS,
+        (key: string): void => {
+            expect.assertions(1);
 
-        const config = { ...MINIMAL_CONFIG, [key]: null };
+            const config = { ...MINIMAL_CONFIG, [key]: null };
 
-        expect(validateConfigList([config])).toStrictEqual({ kind: "valid", configs: [config] });
-    });
+            expect(validateConfigList([config])).toStrictEqual({ kind: "valid", configs: [config] });
+        },
+    );
 
     it("rejects null for frequency, which is not one of its allowed values", TEST_OPTIONS, (): void => {
         expect.assertions(1);
