@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { freezeTime } from "../../tests/support/fakeClock.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
+import { LOOSE_CONFIG } from "../../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
+import { UnreadableConfigError } from "../configuration/index.js";
 import { ensureRefreshPending, keepRefreshCheckRunning, scheduleRetry, startRefreshCheck } from "./refreshSchedule.js";
 
 // What keeps refreshes running when something goes wrong: the hourly refresh check, which requests a refresh when none
@@ -9,6 +11,8 @@ import { ensureRefreshPending, keepRefreshCheckRunning, scheduleRetry, startRefr
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
+
+const UNREADABLE_ERROR = new UnreadableConfigError("the stored thread configs cannot be read");
 
 describe(startRefreshCheck, (): void => {
     it("starts the hourly refresh check", TEST_OPTIONS, async (): Promise<void> => {
@@ -91,6 +95,79 @@ describe(ensureRefreshPending, (): void => {
         await expect(ensureRefreshPending(fakes.ports)).rejects.toBe(schedulerError);
         expect(fakes.notifyModerators.mock.lastCall?.[0].subject).toBe("Sticky Manager could not refresh its threads");
     });
+});
+
+describe("ensureRefreshPending with thread configs stored since the last refresh", (): void => {
+    it.for(["2100-01-01T00:00:00Z", "2026-04-21T10:43:06Z"])(
+        "requests a refresh when the pending one, due %s, is not due at once, and logs it",
+        TEST_OPTIONS,
+        async (pendingAt: string): Promise<void> => {
+            expect.assertions(2);
+
+            freezeTime("2026-04-21T10:43:00Z");
+            const errorSpy = silenceConsole("error");
+            const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
+            await fakes.ports.appliedThreadConfigs.record([]);
+            fakes.refreshJobs.pendingRunTimes.mockResolvedValue([new Date(pendingAt)]);
+
+            await ensureRefreshPending(fakes.ports);
+
+            expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:43:01.000Z"));
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+                "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
+            );
+        },
+    );
+
+    it.for(["2026-04-21T10:43:05Z", "2026-04-21T10:42:00Z"])(
+        "leaves alone a pending refresh due at once (%s), as their save requested",
+        TEST_OPTIONS,
+        async (pendingAt: string): Promise<void> => {
+            expect.assertions(1);
+
+            freezeTime("2026-04-21T10:43:00Z");
+            const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
+            await fakes.ports.appliedThreadConfigs.record([]);
+            fakes.refreshJobs.pendingRunTimes.mockResolvedValue([new Date(pendingAt)]);
+
+            await ensureRefreshPending(fakes.ports);
+
+            expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+        },
+    );
+
+    it(
+        "keeps a refresh pending when none is, before reading the thread configs, so unreadable ones cannot stop it",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            freezeTime("2026-04-21T10:43:00Z");
+            silenceConsole("log");
+            const fakes = createFakeRotationPorts();
+            fakes.refreshJobs.pendingRunTimes.mockResolvedValue([]);
+            fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
+
+            await ensureRefreshPending(fakes.ports);
+
+            expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:43:01.000Z"));
+        },
+    );
+
+    it(
+        "fails, keeping the pending refresh and leaving the alert to configuration, when the thread configs cannot be read",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const fakes = createFakeRotationPorts();
+            fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
+
+            await expect(ensureRefreshPending(fakes.ports)).rejects.toBe(UNREADABLE_ERROR);
+            expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+            expect(fakes.refreshFailureAlert.claim).not.toHaveBeenCalled();
+        },
+    );
 });
 
 describe(scheduleRetry, (): void => {

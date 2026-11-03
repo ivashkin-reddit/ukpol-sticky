@@ -20,6 +20,14 @@ function isOnTime(runAt: Date, now: Date): boolean {
     return runAt.getTime() > subMinutes(now, STUCK_AFTER_MINUTES).getTime();
 }
 
+/**
+ * Whether a refresh due at `runAt` is due at once as of `now`: on time, and due no later than a refresh scheduled now
+ * for thread configs not yet applied would be.
+ */
+function isDueAtOnce(runAt: Date, now: Date): boolean {
+    return isOnTime(runAt, now) && runAt.getTime() <= addSeconds(now, REFRESH_JOB_DELAY_SECONDS).getTime();
+}
+
 async function findNextRotationTime(
     configs: readonly ThreadConfig[],
     ports: RotationPorts,
@@ -130,18 +138,45 @@ export async function keepRefreshCheckRunning(refreshJobs: RefreshJobs): Promise
 }
 
 /**
+ * Requests a refresh when the thread configs in force are not the ones the last refresh applied and no pending refresh
+ * is due at once: the refresh their save requested was never scheduled, say, and the one pending is hours off.
+ */
+async function requestRefreshForUnappliedConfigs(
+    ports: Pick<RotationPorts, "appliedThreadConfigs" | "refreshJobs" | "refreshStatus" | "threadConfigs">,
+    pendingRunTimes: readonly Date[],
+    now: Date,
+): Promise<void> {
+    if (
+        pendingRunTimes.some((runAt: Date): boolean => isDueAtOnce(runAt, now)) ||
+        (await ports.appliedThreadConfigs.matches(await ports.threadConfigs()))
+    ) {
+        return;
+    }
+
+    console.error(
+        "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
+    );
+    await requestRefresh(ports);
+}
+
+/**
  * The hourly refresh check. Each refresh schedules the next, so a refresh that fails early leaves none pending; the
  * check then requests one, which retries what failed. A pending refresh long past its time has not run and will not,
- * so the check replaces it too; one still on time is left alone. A refresh the check requests can overlap one already
- * running; thread locks keep that from rotating a thread twice.
+ * so the check replaces it too. One still on time is left alone, unless thread configs stored since the last refresh
+ * need one at once and it is not due at once. A refresh the check requests can overlap one already running; thread
+ * locks keep that from rotating a thread twice.
  */
 export async function ensureRefreshPending(
-    ports: FailureAlertPorts & Pick<RotationPorts, "refreshJobs" | "refreshStatus">,
+    ports: FailureAlertPorts &
+        Pick<RotationPorts, "appliedThreadConfigs" | "refreshJobs" | "refreshStatus" | "threadConfigs">,
 ): Promise<void> {
     await alertingOnFailure(ports, async (): Promise<void> => {
         const now = new Date();
         const pendingRunTimes = await ports.refreshJobs.pendingRunTimes();
         if (pendingRunTimes.some((runAt: Date): boolean => isOnTime(runAt, now))) {
+            // The thread configs are read only once a refresh is known to be pending, so ones that cannot be read
+            // cannot stop the check from keeping a refresh pending.
+            await requestRefreshForUnappliedConfigs(ports, pendingRunTimes, now);
             return;
         }
 
