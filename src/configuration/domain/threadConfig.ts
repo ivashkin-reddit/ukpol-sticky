@@ -21,7 +21,7 @@ const SCHEDULE_FREQUENCIES = ["daily", ...WEEKLY_FREQUENCIES] as const;
 type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number];
 
 // HH:mm, 24-hour, interpreted as UTC.
-const POST_TIME = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/u;
+const POST_TIME = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/v;
 
 // Any instant will do: a date-fns format string is valid or not regardless of the date it formats.
 const ANY_INSTANT = 0;

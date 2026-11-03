@@ -53,15 +53,8 @@ export default defineConfig(
     tests,
 
     {
-        // Devvit loads the module named by `blocks.entry` in devvit.json through its default export.
-        files: ["src/main.ts"],
-        rules: {
-            "import-x/no-default-export": "off",
-        },
-    },
-    {
-        // ESLint and Vitest load their config files through the default export.
-        files: ["eslint.config.mjs", "vitest.config.ts"],
+        // ESLint, Vite and Vitest load their config files through the default export.
+        files: ["eslint.config.mjs", "vite.config.ts", "vitest.config.ts"],
         rules: {
             "import-x/no-default-export": "off",
         },

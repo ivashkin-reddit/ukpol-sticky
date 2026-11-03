@@ -1,10 +1,10 @@
-import type { TriggerContext } from "@devvit/public-api";
-import { asT5ID } from "@devvit/public-api/types/tid.js";
+import type { RedditClient } from "@devvit/web/server";
+import { T5 as asSubredditId } from "@devvit/web/shared";
 import type { ModeratorAlert, NotifyModerators } from "../index.js";
 
 export type ModmailContext = Readonly<{
     reddit: Readonly<{
-        modMail: Readonly<Pick<TriggerContext["reddit"]["modMail"], "createModInboxConversation">>;
+        modMail: Readonly<Pick<RedditClient["modMail"], "createModInboxConversation">>;
     }>;
     subredditId: string;
 }>;
@@ -13,7 +13,7 @@ export type ModmailContext = Readonly<{
 export function modmailNotifier(context: ModmailContext): NotifyModerators {
     return async (alert: ModeratorAlert): Promise<void> => {
         await context.reddit.modMail.createModInboxConversation({
-            subredditId: asT5ID(context.subredditId),
+            subredditId: asSubredditId(context.subredditId),
             subject: alert.subject,
             bodyMarkdown: alert.bodyMarkdown,
         });

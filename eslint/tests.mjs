@@ -16,7 +16,7 @@ export const tests = defineConfig({
             // Lets rules such as valid-title use type information (e.g. to accept describe(someFunction, ...)).
             typecheck: true,
             // tests/support/devvitTest.ts re-exports Devvit's harness-backed `it`; vitest rules treat it as vitest's.
-            vitestImports: [/\/support\/devvitTest\.js$/u],
+            vitestImports: [/\/support\/devvitTest\.js$/v],
         },
     },
     rules: {

@@ -1,4 +1,4 @@
-import { redis } from "@devvit/redis";
+import { redis } from "@devvit/web/server";
 import { describe, expect } from "vitest";
 import { rotationPorts } from "../src/composition.js";
 import { forgetDeletedPost } from "../src/rotation/index.js";

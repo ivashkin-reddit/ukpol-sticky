@@ -46,8 +46,6 @@ export const strictness = defineConfig({
         "one-var": "off",
         "sort-keys": "off",
         "no-ternary": "off",
-        // Platform: the `v` flag needs ES2024; Devvit's shared tsconfig and its esbuild bundle target ES2020.
-        "regexp/require-unicode-sets-regexp": "off",
 
         // typescript-eslint, stricter options.
         "@typescript-eslint/strict-boolean-expressions": [
@@ -148,10 +146,11 @@ export const strictness = defineConfig({
                 // WORKAROUND: Date parameters count as readonly
                 //   cause: Date is a mutable built-in (setHours and friends), so no Date parameter can be deeply
                 //     readonly.
-                //   blocked: the immutable replacement, Temporal, is not in Devvit's ES2020 runtime or its TypeScript
-                //     lib.
+                //   blocked: the immutable replacement, Temporal, is not in Node 22, the runtime @devvit/start builds
+                //     the server for, or in TypeScript's ES2024 lib.
                 //   fix: carry instants as Temporal.Instant instead of Date.
-                //   until: Devvit's runtime and tsconfig lib include Temporal.
+                //   until: Devvit Web's server build targets a Node release with Temporal, and the tsconfig lib
+                //     includes it.
                 allow: [
                     { from: "lib", name: "Date" },
                     // WORKAROUND: Hono's Context parameters count as readonly
@@ -182,7 +181,14 @@ export const strictness = defineConfig({
         "import-x/no-extraneous-dependencies": [
             "error",
             {
-                devDependencies: ["**/*.test.ts", "tests/**", "vitest.config.ts", "eslint.config.mjs", "eslint/**"],
+                devDependencies: [
+                    "**/*.test.ts",
+                    "tests/**",
+                    "vite.config.ts",
+                    "vitest.config.ts",
+                    "eslint.config.mjs",
+                    "eslint/**",
+                ],
                 includeInternal: true,
                 includeTypes: true,
             },

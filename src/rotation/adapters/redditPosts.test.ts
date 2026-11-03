@@ -16,7 +16,7 @@ const POST = createFakePost({
 
 describe(redditPosts, (): void => {
     it("publishes to the subreddit the context names", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
+        expect.assertions(2);
 
         const fakes = createFakeDevvitContext("ukpolitics");
         fakes.reddit.submitPost.mockResolvedValue(POST);
@@ -27,24 +27,24 @@ describe(redditPosts, (): void => {
             text: "Body",
             subredditName: "ukpolitics",
         });
-        expect(fakes.reddit.getCurrentSubredditName).not.toHaveBeenCalled();
     });
 
-    it("publishes to the current subreddit when the context names none", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "rejects a stored ID that is not a post's or a comment's before calling Reddit",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const fakes = createFakeDevvitContext();
-        fakes.reddit.submitPost.mockResolvedValue(POST);
+            const fakes = createFakeDevvitContext();
+            const posts = redditPosts(fakes.context);
 
-        await redditPosts(fakes.context).publish({ title: "Title", body: "Body" });
-
-        expect(fakes.reddit.getCurrentSubredditName).toHaveBeenCalledExactlyOnceWith();
-        expect(fakes.reddit.submitPost).toHaveBeenCalledExactlyOnceWith({
-            title: "Title",
-            text: "Body",
-            subredditName: "currentsub",
-        });
-    });
+            await expect(posts.get("t1_beta")).rejects.toThrow("Expected link id to start with t3_, got t1_beta");
+            await expect(posts.getComment("t3_alpha")).rejects.toThrow(
+                "Expected comment id to start with t1_, got t3_alpha",
+            );
+            expect(fakes.reddit.getPostById).not.toHaveBeenCalled();
+        },
+    );
 
     it("gets a post by its ID", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);

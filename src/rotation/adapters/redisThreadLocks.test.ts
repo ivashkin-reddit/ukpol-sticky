@@ -20,7 +20,7 @@ describe(redisThreadLocks, (): void => {
             await expect(redisThreadLocks(redis).tryLock("daily-thread")).resolves.toBe(true);
             expect(redis.set.mock.lastCall?.[0]).toBe("ThreadLock:daily-thread");
             // The time it was taken, then a random part that tells apart two invocations in the same millisecond.
-            expect(redis.set.mock.lastCall?.[1]).toMatch(/^2026-04-21T10:00:00\.000Z [\da-z]+$/u);
+            expect(redis.set.mock.lastCall?.[1]).toMatch(/^2026-04-21T10:00:00\.000Z [\da-z]+$/v);
             expect(redis.set.mock.lastCall?.[2]).toStrictEqual({
                 nx: true,
                 expiration: new Date("2026-04-21T10:02:00.000Z"),

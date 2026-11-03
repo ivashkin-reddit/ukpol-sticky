@@ -1,4 +1,4 @@
-import type { RedisClient, Scheduler as DevvitScheduler, TriggerContext } from "@devvit/public-api";
+import type { RedditClient, RedisClient, SchedulerClient } from "@devvit/web/server";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ConfigurationContext, DevvitContext, RotationContext } from "../../src/composition.js";
@@ -26,13 +26,12 @@ export interface FakeRedis {
     readonly transaction: FakeTransaction;
 }
 
-export type CreateModInboxConversation = TriggerContext["reddit"]["modMail"]["createModInboxConversation"];
+export type CreateModInboxConversation = RedditClient["modMail"]["createModInboxConversation"];
 
 type DevvitReddit = ConfigurationContext["reddit"] & RotationContext["reddit"];
 
 export interface FakeReddit {
     readonly modMail: Readonly<{ createModInboxConversation: Mock<CreateModInboxConversation> }>;
-    readonly getCurrentSubredditName: Mock<() => Promise<string>>;
     readonly getCommentById: Mock<DevvitReddit["getCommentById"]>;
     readonly getPostById: Mock<DevvitReddit["getPostById"]>;
     readonly getWikiPage: Mock<DevvitReddit["getWikiPage"]>;
@@ -43,9 +42,9 @@ export interface FakeReddit {
 }
 
 export interface FakeScheduler {
-    readonly cancelJob: Mock<DevvitScheduler["cancelJob"]>;
-    readonly listJobs: Mock<DevvitScheduler["listJobs"]>;
-    readonly runJob: Mock<DevvitScheduler["runJob"]>;
+    readonly cancelJob: Mock<SchedulerClient["cancelJob"]>;
+    readonly listJobs: Mock<SchedulerClient["listJobs"]>;
+    readonly runJob: Mock<SchedulerClient["runJob"]>;
 }
 
 export interface FakeDevvitContext {
@@ -60,7 +59,6 @@ function createFakeReddit(): FakeReddit {
         modMail: {
             createModInboxConversation: vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id"),
         },
-        getCurrentSubredditName: vi.fn<() => Promise<string>>().mockResolvedValue("currentsub"),
         getCommentById: vi.fn<DevvitReddit["getCommentById"]>(),
         getPostById: vi.fn<DevvitReddit["getPostById"]>(),
         getWikiPage: vi.fn<DevvitReddit["getWikiPage"]>(),
@@ -80,7 +78,7 @@ function createFakeTransaction(): FakeTransaction {
 }
 
 /** A Devvit context whose every dependency is a typed mock with an empty-store default. */
-export function createFakeDevvitContext(subredditName?: string): FakeDevvitContext {
+export function createFakeDevvitContext(subredditName = "testsub"): FakeDevvitContext {
     const transaction = createFakeTransaction();
     const redis: FakeRedis = {
         del: vi.fn<RedisClient["del"]>().mockResolvedValue(undefined),
@@ -96,9 +94,9 @@ export function createFakeDevvitContext(subredditName?: string): FakeDevvitConte
     };
     const reddit = createFakeReddit();
     const scheduler: FakeScheduler = {
-        cancelJob: vi.fn<DevvitScheduler["cancelJob"]>().mockResolvedValue(undefined),
-        listJobs: vi.fn<DevvitScheduler["listJobs"]>().mockResolvedValue([]),
-        runJob: vi.fn<DevvitScheduler["runJob"]>().mockResolvedValue("job-id"),
+        cancelJob: vi.fn<SchedulerClient["cancelJob"]>().mockResolvedValue(undefined),
+        listJobs: vi.fn<SchedulerClient["listJobs"]>().mockResolvedValue([]),
+        runJob: vi.fn<SchedulerClient["runJob"]>().mockResolvedValue("job-id"),
     };
 
     return {

@@ -1,31 +1,17 @@
-import { asT1ID, asT3ID } from "@devvit/public-api/types/tid.js";
-import { reddit } from "@devvit/reddit";
-import { redis } from "@devvit/redis";
-import { scheduler } from "@devvit/scheduler";
-import type { ScheduledJob } from "@devvit/scheduler";
+import { reddit, redis, scheduler } from "@devvit/web/server";
+import type { ScheduledCronJob, ScheduledJob } from "@devvit/web/server";
 import { vi } from "vitest";
 import type { RotationContext } from "../../src/composition.js";
-import { REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
-import type { ManagedComment, ManagedPost } from "../../src/rotation/index.js";
+import { REFRESH_CHECK_JOB_NAME, REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
 
-/** createDevvitTest()'s default subreddit. */
+/** createDevvitTest()'s default subreddit and app, as its request context names them. */
 export const TEST_SUBREDDIT_ID = "t5_testsub";
 export const TEST_SUBREDDIT_NAME = "testsub";
-
-// The harness exposes Devvit Web's RedditClient, which offers getCurrentSubreddit() where the Blocks RedditAPIClient
-// (what the app receives in production) offers getCurrentSubredditName(), and takes t3_-typed post IDs.
-const harnessReddit: RotationContext["reddit"] = {
-    modMail: reddit.modMail,
-    getCurrentSubredditName: async (): Promise<string> => (await reddit.getCurrentSubreddit()).name,
-    getCommentById: async (id: string): Promise<ManagedComment> => await reddit.getCommentById(asT1ID(id)),
-    getPostById: async (id: string): Promise<ManagedPost> => await reddit.getPostById(asT3ID(id)),
-    submitPost: async (options: Parameters<RotationContext["reddit"]["submitPost"]>[0]): Promise<ManagedPost> =>
-        await reddit.submitPost(options),
-};
+export const TEST_APP_SLUG = "test-app";
 
 /** Devvit's in-memory test harness, as the composition root builds rotation ports from it. */
 export const HARNESS_CONTEXT: RotationContext = {
-    reddit: harnessReddit,
+    reddit,
     redis,
     scheduler,
     subredditId: TEST_SUBREDDIT_ID,
@@ -38,6 +24,17 @@ export function isRefreshJob(job: Readonly<{ name: string }>): job is ScheduledJ
 
 export async function listRefreshJobs(): Promise<ScheduledJob[]> {
     return (await scheduler.listJobs()).filter(isRefreshJob);
+}
+
+function isRefreshCheck(job: Readonly<{ name: string }>): job is ScheduledCronJob {
+    return "cron" in job && job.name === REFRESH_CHECK_JOB_NAME;
+}
+
+/** The cron schedule of each hourly refresh check the scheduler holds. */
+export async function listRefreshCheckCrons(): Promise<string[]> {
+    return (await scheduler.listJobs())
+        .filter(isRefreshCheck)
+        .map(({ cron }: Readonly<{ cron: string }>): string => cron);
 }
 
 /** Submits a post through the harness as if at `isoTime`; the clock must already be faked. Returns the post ID. */

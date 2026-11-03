@@ -1,4 +1,4 @@
-import { redis } from "@devvit/redis";
+import { redis } from "@devvit/web/server";
 import { describe, expect, vi } from "vitest";
 import { configReadPorts } from "../src/composition.js";
 import { getThreadConfigs, storeThreadConfigs, UnreadableConfigError } from "../src/configuration/index.js";

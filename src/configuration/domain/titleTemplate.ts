@@ -1,7 +1,7 @@
 import { format } from "date-fns";
 
 // A title may contain one token such as `{{date yyyy-MM-dd}}`; the text after "date " is a date-fns format string.
-const DATE_TOKEN = /\{\{date (?<dateFormat>.+)\}\}/u;
+const DATE_TOKEN = /\{\{date (?<dateFormat>.+)\}\}/v;
 
 export interface DateToken {
     readonly text: string;

@@ -1,11 +1,21 @@
 {
-  "extends": "@devvit/public-api/devvit.tsconfig.json",
+  // App code and tests. Both run on Node: the app as Devvit Web's server, the tests under Vitest.
   "compilerOptions": {
     "allowJs": false,
     "checkJs": false,
     "noEmit": true,
 
-    // Declared here rather than inherited, so a Devvit upgrade cannot loosen them.
+    // Devvit Web runs the server bundle on Node, and @devvit/start's Vite plugin builds it for Node 22, which
+    // implements ES2024.
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    // Vite compiles each file on its own.
+    "isolatedModules": true,
+
     "strict": true,
     "noImplicitOverride": true,
 
@@ -23,18 +33,17 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
 
-    // Devvit's shared config adds vitest's globals to every file, app code included; tests import from "vitest" instead.
-    "types": [],
-
-    // Devvit's lib list plus ES2022.Error: its Node runtime supports `new Error(message, { cause })`, which
-    // preserve-caught-error requires when a catch block throws a new error.
-    "lib": ["ES2020", "ES2022.Error", "WebWorker"],
-
     // WORKAROUND: library declaration files are not type-checked
-    //   cause: @devvit/shared-types/schemas/config-file.v1.d.ts (0.15.2) references `AppConfigJson`, which it never declares or imports (TS2552).
-    //   blocked: the broken declaration ships inside Devvit's published package; it cannot be fixed from this repo.
-    //   fix: Devvit declares or imports `AppConfigJson` in that file; then set "skipLibCheck": false.
-    //   until: `npx tsc --skipLibCheck false` reports no errors under node_modules/@devvit.
+    //   cause: three published declaration sets fail to type-check. @devvit/shared-types/schemas/config-file.v1.d.ts
+    //     (0.15.2) references `AppConfigJson`, which it never declares or imports (TS2552); @devvit/server/index.d.ts
+    //     (0.15.2) re-exports `getContextCache` and `setContextCache`, which its context.d.ts never declares (TS2305);
+    //     hono's websocket helper types (4.13.16) use DOM types (`BinaryType`, a generic `MessageEvent`) that this
+    //     Node-only lib leaves out (TS2304, TS2315).
+    //   blocked: the declarations ship inside the published packages. Adding the DOM lib for hono would let browser
+    //     globals type-check in server code.
+    //   fix: Devvit fixes both files and hono's websocket types stop needing the DOM lib; then set "skipLibCheck": false.
+    //   until: `npx tsc -p tsconfig.json --skipLibCheck false` reports no errors under node_modules.
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["**/node_modules", "dist"]
 }

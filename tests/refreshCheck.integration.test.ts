@@ -1,26 +1,13 @@
-import { scheduler } from "@devvit/scheduler";
-import type { ScheduledCronJob } from "@devvit/scheduler";
 import { describe, expect, vi } from "vitest";
 import { rotationPorts } from "../src/composition.js";
-import { REFRESH_CHECK_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
 import { ensureRefreshPending, refreshAllThreads, requestRefresh, startRefreshCheck } from "../src/rotation/index.js";
-import { HARNESS_CONTEXT, listRefreshJobs } from "./support/devvitHarness.js";
+import { HARNESS_CONTEXT, listRefreshCheckCrons, listRefreshJobs } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
 import { silenceConsole } from "./support/silenceConsole.js";
 
 // Each test gets a fresh in-memory Devvit world; five seconds covers that setup on a slow machine.
 const TEST_OPTIONS = { timeout: 5000 };
-
-function isRefreshCheck(job: Readonly<{ name: string }>): job is ScheduledCronJob {
-    return "cron" in job && job.name === REFRESH_CHECK_JOB_NAME;
-}
-
-async function refreshCheckCrons(): Promise<string[]> {
-    return (await scheduler.listJobs())
-        .filter(isRefreshCheck)
-        .map(({ cron }: Readonly<{ cron: string }>): string => cron);
-}
 
 async function refreshJobRunTimes(): Promise<string[]> {
     return (await listRefreshJobs()).map(({ runAt }: Readonly<{ runAt: Date }>): string => runAt.toISOString());
@@ -38,7 +25,7 @@ describe("the refresh check", (): void => {
         await startRefreshCheck(refreshJobs);
         await startRefreshCheck(refreshJobs);
 
-        await expect(refreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
+        await expect(listRefreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
     });
 
     devvitIt("requests a refresh when none is pending", TEST_OPTIONS, async (): Promise<void> => {
@@ -94,6 +81,6 @@ describe("the refresh check", (): void => {
 
         await refreshAllThreads(ports);
 
-        await expect(refreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
+        await expect(listRefreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
     });
 });

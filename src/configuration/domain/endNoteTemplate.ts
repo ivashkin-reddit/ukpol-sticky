@@ -4,7 +4,7 @@
 const NEW_POST_TOKEN = "{{new post}}";
 
 // Backslashes and square brackets would end the link text early or escape its closing bracket.
-const LINK_TEXT_SPECIAL = /[[\\\]]/gu;
+const LINK_TEXT_SPECIAL = /[\[\\\]]/gv;
 
 /** The post an end note links. */
 export interface LinkedPost {

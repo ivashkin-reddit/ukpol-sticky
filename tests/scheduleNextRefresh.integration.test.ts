@@ -1,5 +1,4 @@
-import { redis } from "@devvit/redis";
-import { scheduler } from "@devvit/scheduler";
+import { redis, scheduler } from "@devvit/web/server";
 import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";

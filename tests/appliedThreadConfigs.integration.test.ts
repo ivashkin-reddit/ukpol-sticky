@@ -1,6 +1,5 @@
-import { asT3ID } from "@devvit/public-api/types/tid.js";
-import { reddit } from "@devvit/reddit";
-import { redis } from "@devvit/redis";
+import { reddit, redis } from "@devvit/web/server";
+import { T3 as asPostId } from "@devvit/web/shared";
 import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
@@ -82,7 +81,7 @@ describe("thread configs stored since the last refresh", (): void => {
 
             await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
 
-            await expect(reddit.getPostById(asT3ID(postId))).resolves.toHaveProperty("body", "Edited body");
+            await expect(reddit.getPostById(asPostId(postId))).resolves.toHaveProperty("body", "Edited body");
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
         },
     );
