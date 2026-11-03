@@ -21,11 +21,11 @@ describe(getThreadConfigs, (): void => {
     it("returns an empty list and warns when no thread configs are stored", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(3);
 
-        const warnSpy = vi.spyOn(console, "warn").mockImplementation((): undefined => undefined);
+        const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
         const fakes = createFakeConfigurationPorts();
 
         await expect(getThreadConfigs(fakes.ports)).resolves.toStrictEqual([]);
-        expect(warnSpy).toHaveBeenCalledExactlyOnceWith("No configuration found in storage. Returning empty config.");
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith("No thread configs are stored yet.");
         expect(fakes.notifyModerators).not.toHaveBeenCalled();
     });
 

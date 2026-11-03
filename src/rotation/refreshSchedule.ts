@@ -34,13 +34,13 @@ export async function scheduleNextRefresh(ports: RotationPorts): Promise<void> {
     const nextRotationTime = await findNextRotationTime(ports);
     await ports.refreshJobs.cancelAll();
     if (nextRotationTime === undefined) {
-        console.log("No scheduled sticky post refreshes found.");
+        console.log("No live post has a schedule, so no refresh is scheduled.");
         return;
     }
 
-    const refreshAt = new Date(Math.max(nextRotationTime.getTime(), Date.now()));
-    await ports.refreshJobs.scheduleAt(addSeconds(refreshAt, REFRESH_JOB_DELAY_SECONDS));
-    console.log(`Scheduled next sticky post refresh at ${refreshAt.toISOString()}.`);
+    const refreshAt = addSeconds(new Date(Math.max(nextRotationTime.getTime(), Date.now())), REFRESH_JOB_DELAY_SECONDS);
+    await ports.refreshJobs.scheduleAt(refreshAt);
+    console.log(`Next refresh scheduled for ${refreshAt.toISOString()}.`);
 }
 
 /** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */

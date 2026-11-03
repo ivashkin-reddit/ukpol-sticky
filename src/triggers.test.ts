@@ -86,10 +86,12 @@ describe(onModAction, (): void => {
         async (event: ModActionEvent): Promise<void> => {
             expect.assertions(2);
 
-            const errorSpy = silenceConsole("error");
+            const warnSpy = silenceConsole("warn");
             await onModAction(event, wired().devvit.context);
 
-            expect(errorSpy).toHaveBeenCalledExactlyOnceWith("Moderator name is missing in the event.");
+            expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+                "Ignoring a wiki revision ModAction event without a moderator name.",
+            );
             expect(vi.mocked(applyConfigPageRevision)).not.toHaveBeenCalled();
         },
     );
@@ -132,10 +134,10 @@ describe(onCommentCreate, (): void => {
         async (event: CommentCreateEvent): Promise<void> => {
             expect.assertions(2);
 
-            const errorSpy = silenceConsole("error");
+            const warnSpy = silenceConsole("warn");
             await onCommentCreate(event, wired().devvit.context);
 
-            expect(errorSpy).toHaveBeenCalledExactlyOnceWith("CommentCreate event does not contain a post ID.");
+            expect(warnSpy).toHaveBeenCalledExactlyOnceWith("Ignoring a CommentCreate event without a post ID.");
             expect(vi.mocked(rotateIfCapReached)).not.toHaveBeenCalled();
         },
     );

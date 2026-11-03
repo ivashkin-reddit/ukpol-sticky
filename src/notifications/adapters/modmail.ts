@@ -17,5 +17,6 @@ export function modmailNotifier(context: ModmailContext): NotifyModerators {
             subject: alert.subject,
             bodyMarkdown: alert.bodyMarkdown,
         });
+        console.log(`Sent moderator alert by modmail: ${alert.subject}`);
     };
 }

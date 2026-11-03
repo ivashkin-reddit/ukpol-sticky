@@ -32,7 +32,7 @@ function getRevisingModerator(event: ModActionEvent): string | undefined {
 
     const moderatorName = event.moderator?.name ?? "";
     if (moderatorName === "") {
-        console.error("Moderator name is missing in the event.");
+        console.warn("Ignoring a wiki revision ModAction event without a moderator name.");
         return undefined;
     }
 
@@ -58,7 +58,7 @@ export async function onModAction(
 function getCountedPostId(event: CommentCreateEvent, appSlug: string): string | undefined {
     const postId = event.post?.id ?? "";
     if (postId === "") {
-        console.error("CommentCreate event does not contain a post ID.");
+        console.warn("Ignoring a CommentCreate event without a post ID.");
         return undefined;
     }
 

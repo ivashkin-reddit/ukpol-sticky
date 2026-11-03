@@ -77,7 +77,9 @@ describe(refreshAllThreads, (): void => {
             await refreshAllThreads(fakes.ports);
 
             expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha", "beta"], ["t3_alpha", "t3_beta"]);
-            expect(logSpy).toHaveBeenCalledExactlyOnceWith("No sticky post configurations found.");
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "No thread configs are in force, so every live post is forgotten.",
+            );
         },
     );
 
@@ -189,6 +191,26 @@ describe(refreshAllThreads, (): void => {
             expect(fakes.posts.publish).not.toHaveBeenCalled();
         },
     );
+
+    it("logs what the refresh did for each thread config", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([STICKY_CONFIG, LOOSE_CONFIG]);
+        // The sticky thread has no live post yet; the loose one has an up-to-date live post below its comment cap.
+        fakes.livePosts.get.mockImplementation(
+            async (configName: string): Promise<string | undefined> =>
+                await Promise.resolve(configName === "loose-thread" ? "t3_loose" : undefined),
+        );
+        fakes.posts.get.mockResolvedValue({ ...fullPost("t3_loose", 5).post, body: "Loose body" });
+        fakes.posts.publish.mockResolvedValue(newPost("t3_sticky").post);
+
+        await refreshAllThreads(fakes.ports);
+
+        expect(logSpy).toHaveBeenLastCalledWith(
+            "Refresh complete for 2 thread configs: 0 rotated, 1 published, 0 updated, 1 unchanged.",
+        );
+    });
 });
 
 describe(rotateIfCapReached, (): void => {
@@ -230,7 +252,7 @@ describe(rotateIfCapReached, (): void => {
 
         await rotateIfCapReached("t3_full", fakes.ports);
 
-        expect(logSpy).toHaveBeenNthCalledWith(1, "Post t3_full has reached the comment cap of 100.");
+        expect(logSpy).toHaveBeenNthCalledWith(1, "Post t3_full has reached its comment cap of 100.");
         expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
         expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("sticky-thread", "t3_next");
     });

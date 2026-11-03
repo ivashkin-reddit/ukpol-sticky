@@ -73,9 +73,7 @@ describe(scheduleNextRefresh, (): void => {
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
             await expect(jobNames()).resolves.toContain("keep-me");
-            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
-                "Scheduled next sticky post refresh at 2026-04-21T12:30:00.000Z.",
-            );
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith("Next refresh scheduled for 2026-04-21T12:30:05.000Z.");
         },
     );
 
@@ -95,7 +93,7 @@ describe(scheduleNextRefresh, (): void => {
 
         await expect(refreshJobTimes()).resolves.toStrictEqual([]);
         await expect(jobNames()).resolves.toStrictEqual(["keep-me"]);
-        expect(logSpy).toHaveBeenCalledExactlyOnceWith("No scheduled sticky post refreshes found.");
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith("No live post has a schedule, so no refresh is scheduled.");
     });
 
     devvitIt("schedules an overdue refresh five seconds from now", TEST_OPTIONS, async (): Promise<void> => {

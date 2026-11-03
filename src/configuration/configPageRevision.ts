@@ -18,11 +18,10 @@ function alert(subject: string, body: readonly MarkdownBlock[]): ModeratorAlert 
     return { subject, bodyMarkdown: json2md([...body]) };
 }
 
-/** The alert for a config problem, logging the problems that carry detail worth keeping in the app's logs. */
-function describeProblem(problem: ConfigProblem, moderatorName: string, subredditName: string): ModeratorAlert {
+/** The alert for a config problem, addressed to the moderator who saved the config page. */
+function describeProblem(problem: ConfigProblem, moderatorName: string): ModeratorAlert {
     switch (problem.kind) {
         case "invalidSchema":
-            console.error(`Invalid config in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, problem.errors);
             return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
                 { p: `/u/${moderatorName}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
                 { p: "Errors:" },
@@ -36,7 +35,6 @@ function describeProblem(problem: ConfigProblem, moderatorName: string, subreddi
                 },
             ]);
         case "invalidDateFormat":
-            console.error(`Invalid date format in config ${problem.configName}:`, problem.cause);
             return alert(`Invalid date format in config ${problem.configName}`, [
                 {
                     p: `/u/${moderatorName}, the date format in config ${problem.configName} is invalid. Please fix it.`,
@@ -52,17 +50,26 @@ function describeProblem(problem: ConfigProblem, moderatorName: string, subreddi
     }
 }
 
+/** A config problem in one line, for the app's logs. */
+function summarizeProblem(problem: ConfigProblem): string {
+    switch (problem.kind) {
+        case "invalidSchema":
+            return `invalid config: ${problem.errors}`;
+        case "incompleteSchedule":
+            return `thread config ${problem.configName} sets only one of frequency and postTime`;
+        case "invalidDateFormat":
+            return `thread config ${problem.configName} has an invalid date format (${problem.dateFormat}): ${problem.cause.message}`;
+        case "duplicateNames":
+            return "two thread configs share a name";
+    }
+}
+
 interface YamlDocument {
     readonly errors: readonly Readonly<{ message: string }>[];
     readonly toJSON: () => unknown;
 }
 
-function describeYamlErrors(
-    parseErrors: readonly string[],
-    moderatorName: string,
-    subredditName: string,
-): ModeratorAlert {
-    console.error(`Invalid YAML in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, parseErrors.join(" | "));
+function describeYamlErrors(parseErrors: readonly string[], moderatorName: string): ModeratorAlert {
     return alert(`Invalid YAML in wiki page ${CONFIG_PAGE}`, [
         { p: `/u/${moderatorName}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
         { p: "Errors:" },
@@ -71,12 +78,13 @@ function describeYamlErrors(
     ]);
 }
 
+type Rejection = Readonly<{ alert: ModeratorAlert; summary: string }>;
+
 type PageCheck =
-    | Readonly<{ kind: "invalid"; alert: ModeratorAlert }>
-    | Readonly<{ kind: "valid"; configs: readonly ThreadConfig[] }>;
+    (Rejection & Readonly<{ kind: "invalid" }>) | Readonly<{ kind: "valid"; configs: readonly ThreadConfig[] }>;
 
 /** Parses the config page's YAML documents and checks the thread configs they define. */
-function checkConfigPage(content: string, moderatorName: string, subredditName: string): PageCheck {
+function checkConfigPage(content: string, moderatorName: string): PageCheck {
     const documents: readonly YamlDocument[] = parseAllDocuments(content);
     const parseErrors = documents.flatMap((document: YamlDocument, index: number): string[] =>
         document.errors.map(
@@ -84,13 +92,21 @@ function checkConfigPage(content: string, moderatorName: string, subredditName: 
         ),
     );
     if (parseErrors.length > 0) {
-        return { kind: "invalid", alert: describeYamlErrors(parseErrors, moderatorName, subredditName) };
+        return {
+            kind: "invalid",
+            alert: describeYamlErrors(parseErrors, moderatorName),
+            summary: `invalid YAML: ${parseErrors.map((parseError): string => parseError.trim()).join(" | ")}`,
+        };
     }
 
     // Empty documents parse to null; compact drops them before checking.
     const check = checkThreadConfigs(compact(documents.map((document: YamlDocument): unknown => document.toJSON())));
     if (check.kind === "invalid") {
-        return { kind: "invalid", alert: describeProblem(check.problem, moderatorName, subredditName) };
+        return {
+            kind: "invalid",
+            alert: describeProblem(check.problem, moderatorName),
+            summary: summarizeProblem(check.problem),
+        };
     }
 
     return check;
@@ -108,11 +124,20 @@ async function readNewRevision(ports: Pick<ConfigurationPorts, "page" | "store">
     }
 
     if (revision.revisionId === acceptedRevision) {
-        console.log(`No changes detected in wiki page ${CONFIG_PAGE} in subreddit ${revision.subredditName}.`);
+        console.log(`Config page revision ${revision.revisionId} is already accepted.`);
         return { kind: "unchanged" };
     }
 
     return { kind: "new", revision };
+}
+
+async function rejectRevision(
+    revision: ConfigPageRevision,
+    rejection: Rejection,
+    ports: Pick<ConfigurationPorts, "notifyModerators">,
+): Promise<void> {
+    console.warn(`Rejected config page revision ${revision.revisionId}: ${rejection.summary}.`);
+    await ports.notifyModerators(rejection.alert);
 }
 
 async function acceptRevision(
@@ -122,6 +147,7 @@ async function acceptRevision(
 ): Promise<void> {
     await ports.store.writeAcceptedRevision(revision.revisionId);
     await storeThreadConfigs(configs, ports);
+    console.log(`Accepted config page revision ${revision.revisionId}: ${String(configs.length)} thread configs.`);
 }
 
 /**
@@ -137,13 +163,12 @@ export async function applyConfigPageRevision(
         return read.kind;
     }
 
-    const { revision } = read;
-    const check = checkConfigPage(revision.content, moderatorName, revision.subredditName);
+    const check = checkConfigPage(read.revision.content, moderatorName);
     if (check.kind === "invalid") {
-        await ports.notifyModerators(check.alert);
+        await rejectRevision(read.revision, check, ports);
         return "rejected";
     }
 
-    await acceptRevision(revision, check.configs, ports);
+    await acceptRevision(read.revision, check.configs, ports);
     return "stored";
 }

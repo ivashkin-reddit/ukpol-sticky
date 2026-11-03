@@ -40,9 +40,12 @@ async function readRevision(context: WikiConfigPageContext): Promise<ConfigPageR
     const subredditName = await getSubredditName(context);
     try {
         const page = await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
-        return { content: page.content, revisionId: page.revisionId, subredditName };
+        return { content: page.content, revisionId: page.revisionId };
     } catch (error: unknown) {
-        console.error(`Failed to fetch wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, error);
+        console.error(
+            `Could not read the config page ${CONFIG_PAGE} in r/${subredditName}, so its revision is not applied:`,
+            error,
+        );
         return undefined;
     }
 }

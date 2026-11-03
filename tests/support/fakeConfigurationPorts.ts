@@ -49,7 +49,7 @@ function createFakeStore(options: FakeConfigurationOptions): FakeConfigStore {
 
 /**
  * Configuration ports whose every method is a typed mock. The config page reads as revision "rev-2" of
- * `pageContent` in subreddit testsub; nothing is stored unless `storedConfigs` is given.
+ * `pageContent`; nothing is stored unless `storedConfigs` is given.
  */
 export function createFakeConfigurationPorts(options: FakeConfigurationOptions = {}): FakeConfigurationPorts {
     const notifyModerators = vi.fn<NotifyModerators>().mockResolvedValue(undefined);
@@ -57,7 +57,6 @@ export function createFakeConfigurationPorts(options: FakeConfigurationOptions =
         read: vi.fn<ConfigPage["read"]>().mockResolvedValue({
             content: options.pageContent ?? VALID_CONFIG_PAGE,
             revisionId: "rev-2",
-            subredditName: "testsub",
         }),
         install: vi.fn<ConfigPage["install"]>().mockResolvedValue(undefined),
     };

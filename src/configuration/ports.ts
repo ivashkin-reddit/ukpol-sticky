@@ -8,8 +8,6 @@ import type { ThreadConfig } from "./domain/threadConfig.js";
 export interface ConfigPageRevision {
     readonly content: string;
     readonly revisionId: string;
-    /** The subreddit whose config page this is, for log messages. */
-    readonly subredditName: string;
 }
 
 /** The config page: the subreddit wiki page that holds the thread configs. */

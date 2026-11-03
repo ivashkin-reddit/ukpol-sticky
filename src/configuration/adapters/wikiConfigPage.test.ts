@@ -16,7 +16,6 @@ describe("wikiConfigPage().read", (): void => {
         await expect(wikiConfigPage(fakes.context).read()).resolves.toStrictEqual({
             content: "name: x",
             revisionId: "rev-2",
-            subredditName: "testsub",
         });
         expect(fakes.reddit.getWikiPage).toHaveBeenCalledExactlyOnceWith("testsub", "stickymgr/config");
     });
@@ -31,7 +30,7 @@ describe("wikiConfigPage().read", (): void => {
 
         await expect(wikiConfigPage(fakes.context).read()).resolves.toBeUndefined();
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
-            "Failed to fetch wiki page stickymgr/config in subreddit testsub:",
+            "Could not read the config page stickymgr/config in r/testsub, so its revision is not applied:",
             pageError,
         );
     });

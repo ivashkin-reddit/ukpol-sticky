@@ -11,7 +11,7 @@ interface ProblemCase {
     readonly pageContent: string;
     readonly subject: string;
     readonly bodyMarkdown: string;
-    readonly errorLogs: readonly (readonly unknown[])[];
+    readonly warnLog: string;
 }
 
 const PROBLEM_CASES: readonly ProblemCase[] = [
@@ -21,12 +21,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Invalid YAML in wiki page stickymgr/config",
         bodyMarkdown:
             '\n/u/mod_user, the wiki page stickymgr/config contains invalid YAML. Please fix it.\n\n\nErrors:\n\n> Document 1: Missing closing "quote at line 4, column 20:\n> \n> body: "unterminated\n>                    ^\n> \n\n\nThe existing config will be used until the issue is resolved.\n',
-        errorLogs: [
-            [
-                "Invalid YAML in wiki page stickymgr/config in subreddit testsub:",
-                'Document 1: Missing closing "quote at line 4, column 20:\n\nbody: "unterminated\n                   ^\n',
-            ],
-        ],
+        warnLog:
+            'Rejected config page revision rev-2: invalid YAML: Document 1: Missing closing "quote at line 4, column 20:\n\nbody: "unterminated\n                   ^.',
     },
     {
         problem: "a schema violation",
@@ -40,9 +36,7 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Invalid config in wiki page stickymgr/config",
         bodyMarkdown:
             "\n/u/mod_user, the config in wiki page stickymgr/config is invalid. Please fix it.\n\n\nErrors:\n\n> data/0/maxComments must be >= 1\n\n\nThe existing config will be used until the issue is resolved.\n",
-        errorLogs: [
-            ["Invalid config in wiki page stickymgr/config in subreddit testsub:", "data/0/maxComments must be >= 1"],
-        ],
+        warnLog: "Rejected config page revision rev-2: invalid config: data/0/maxComments must be >= 1.",
     },
     {
         problem: "an empty frequency",
@@ -57,12 +51,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Invalid config in wiki page stickymgr/config",
         bodyMarkdown:
             "\n/u/mod_user, the config in wiki page stickymgr/config is invalid. Please fix it.\n\n\nErrors:\n\n> data/0/frequency must be equal to one of the allowed values\n\n\nThe existing config will be used until the issue is resolved.\n",
-        errorLogs: [
-            [
-                "Invalid config in wiki page stickymgr/config in subreddit testsub:",
-                "data/0/frequency must be equal to one of the allowed values",
-            ],
-        ],
+        warnLog:
+            "Rejected config page revision rev-2: invalid config: data/0/frequency must be equal to one of the allowed values.",
     },
     {
         problem: "a frequency without a postTime",
@@ -77,7 +67,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Incomplete schedule in config incomplete-thread",
         bodyMarkdown:
             "\n/u/mod_user, config incomplete-thread must define both frequency and postTime, or omit both to refresh only when maxComments is reached.\n",
-        errorLogs: [],
+        warnLog:
+            "Rejected config page revision rev-2: thread config incomplete-thread sets only one of frequency and postTime.",
     },
     {
         problem: "an invalid date format",
@@ -91,12 +82,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Invalid date format in config dated-thread",
         bodyMarkdown:
             "\n/u/mod_user, the date format in config dated-thread is invalid. Please fix it.\n\n\nThe date format `nope` is not a valid format string.\n",
-        errorLogs: [
-            [
-                "Invalid date format in config dated-thread:",
-                new RangeError("Format string contains an unescaped latin alphabet character `n`"),
-            ],
-        ],
+        warnLog:
+            "Rejected config page revision rev-2: thread config dated-thread has an invalid date format (nope): Format string contains an unescaped latin alphabet character `n`.",
     },
     {
         problem: "duplicate config names",
@@ -116,7 +103,7 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
         subject: "Duplicate config names in wiki page stickymgr/config",
         bodyMarkdown:
             "\n/u/mod_user, there are duplicate config names in wiki page stickymgr/config. Please ensure all config names are unique.\n",
-        errorLogs: [],
+        warnLog: "Rejected config page revision rev-2: two thread configs share a name.",
     },
 ];
 
@@ -127,7 +114,7 @@ describe("applyConfigPageRevision with an invalid config page", (): void => {
         async (problemCase: ProblemCase): Promise<void> => {
             expect.assertions(4);
 
-            const errorSpy = silenceConsole("error");
+            const warnSpy = silenceConsole("warn");
             const fakes = createFakeConfigurationPorts({ pageContent: problemCase.pageContent });
 
             await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("rejected");
@@ -137,7 +124,7 @@ describe("applyConfigPageRevision with an invalid config page", (): void => {
                 bodyMarkdown: problemCase.bodyMarkdown,
             });
             expect(fakes.store.writeConfigs).not.toHaveBeenCalled();
-            expect(errorSpy.mock.calls).toStrictEqual(problemCase.errorLogs);
+            expect(warnSpy.mock.calls).toStrictEqual([[problemCase.warnLog]]);
         },
     );
 });

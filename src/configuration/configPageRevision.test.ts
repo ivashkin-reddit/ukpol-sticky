@@ -25,9 +25,7 @@ describe(applyConfigPageRevision, (): void => {
         const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-2" });
 
         await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("unchanged");
-        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
-            "No changes detected in wiki page stickymgr/config in subreddit testsub.",
-        );
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith("Config page revision rev-2 is already accepted.");
         expect(fakes.store.writeAcceptedRevision).not.toHaveBeenCalled();
     });
 

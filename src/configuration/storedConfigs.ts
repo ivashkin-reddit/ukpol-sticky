@@ -57,7 +57,7 @@ async function readStoredConfigs(ports: ConfigReadPorts): Promise<readonly Threa
 export async function getThreadConfigs(ports: ConfigReadPorts): Promise<readonly ThreadConfig[]> {
     const configs = await readStoredConfigs(ports);
     if (configs === undefined) {
-        console.warn("No configuration found in storage. Returning empty config.");
+        console.log("No thread configs are stored yet.");
         return [];
     }
 

@@ -32,6 +32,14 @@ A modular monolith with one bounded context, managed threads, built as ports and
     - Slack is a second adapter for `NotifyModerators`, chosen in `composition.ts`.
     - A mod UI is a set of handlers at the edge that call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail.
 
+## Logs
+
+`console` is Devvit's only log channel. `devvit logs <subreddit>` streams it, and only developers can see it, so moderators learn of problems through moderator alerts instead.
+
+- Use `console.error` for a failure someone must look into, `console.warn` for bad input the app handled (a rejected config page revision, an event missing a field), and `console.log` for normal activity.
+- Write messages in CONTEXT.md's terms, and name the thread config and the post, revision or job involved.
+- [src/main.ts](src/main.ts) registers every handler through `observed` ([src/observed.ts](src/observed.ts)), which logs each failure with the handler's name and duration. A handler that fires for every comment, post or mod action in the subreddit is registered as "failures only"; its use cases log what they change.
+
 ## Live state
 
 Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts)) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
