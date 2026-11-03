@@ -204,7 +204,7 @@ If a rotation interrupted by the failure published its replacement but could not
 
 ## Development
 
-Sticky Manager is a TypeScript Devvit app built on `@devvit/public-api`. It is based on [fsvreddit/ukpol-sticky](https://github.com/fsvreddit/ukpol-sticky).
+Sticky Manager is a TypeScript [Devvit Web](https://developers.reddit.com/docs/capabilities/devvit-web/devvit_web_overview) app: a small Node server, served with Hono and bundled with Vite, that Devvit calls for each trigger and scheduled task. It is based on [fsvreddit/ukpol-sticky](https://github.com/fsvreddit/ukpol-sticky).
 
 ```sh
 npm ci
@@ -213,6 +213,8 @@ npm test                   # unit tests
 npm run test:integration   # on Devvit's in-memory test harness
 npm run lint
 npm run format:check
+npm run build              # the server bundle Devvit runs
+npm run check:bundle
 ```
 
 CI runs the same checks on every push. To try a change on Reddit, playtest it on a test subreddit you moderate: `npx devvit playtest <subreddit>`.

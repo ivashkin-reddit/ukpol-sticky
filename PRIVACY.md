@@ -42,7 +42,7 @@ The app uses this information to:
 
 ## Sharing
 
-The app runs entirely on Reddit's Devvit platform and makes no requests to services outside Reddit. It does not sell data, show ads, build profiles of users, or share data with third parties.
+The app runs entirely on Reddit's Devvit platform and makes no requests to services outside Reddit; its Devvit permissions do not allow it to. It does not sell data, show ads, build profiles of users, or share data with third parties.
 
 ## Retention
 
