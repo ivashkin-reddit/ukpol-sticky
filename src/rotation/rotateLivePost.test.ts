@@ -43,6 +43,8 @@ async function rotate(config: ThreadConfig): Promise<Rotation> {
         id: "t3_replacement",
         numberOfComments: 0,
         stickied: false,
+        title: "Daily thread 2026-04-21",
+        permalink: "/r/testsub/comments/replacement/daily_thread_20260421/",
     });
     fakes.posts.publish.mockResolvedValue(replacement.post);
     fakes.posts.get.mockImplementation(findingPostsById([oldPost.post, replacement.post]));
@@ -66,6 +68,16 @@ describe(rotateLivePost, (): void => {
             expect(oldPost.lock).toHaveBeenCalledExactlyOnceWith();
         },
     );
+
+    it("links the replacement where the end note has {{new post}}", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { oldPost } = await rotate({ ...ROTATING_CONFIG, endNote: "Please continue in {{new post}}." });
+
+        expect(oldPost.addComment).toHaveBeenCalledExactlyOnceWith({
+            text: "Please continue in [Daily thread 2026-04-21](/r/testsub/comments/replacement/daily_thread_20260421/).",
+        });
+    });
 
     it(
         "publishes the replacement with the dated title, then distinguishes and stickies it",

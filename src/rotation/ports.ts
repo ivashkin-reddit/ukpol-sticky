@@ -12,6 +12,9 @@ export interface ManagedComment {
 /** The parts of a Reddit post that rotation reads and calls. */
 export interface ManagedPost {
     readonly id: string;
+    readonly title: string;
+    /** Its path on Reddit, such as /r/ukpolitics/comments/abc123/daily_thread/. */
+    readonly permalink: string;
     readonly createdAt: Date;
     readonly numberOfComments: number;
     readonly body?: string | undefined;

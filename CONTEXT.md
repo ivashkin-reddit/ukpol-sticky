@@ -53,7 +53,7 @@ What happens to the outgoing live post on rotation: it is unstickied, given its 
 _Avoid_: archiving, closing
 
 **End note**:
-The distinguished, pinned comment a retiring live post receives, usually pointing to its replacement.
+The distinguished, pinned comment a retiring live post receives, usually pointing to its replacement: a `{{new post}}` token in it becomes a link to the replacement.
 _Avoid_: closing comment
 
 **Refresh**:
