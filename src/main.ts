@@ -1,11 +1,11 @@
 // Visit developers.reddit.com/docs to learn Devvit!
 
 import { Devvit } from "@devvit/public-api";
-import { handleWikiUpdate } from "./config.js";
-import { ScheduledJob } from "./constants.js";
-import { handlePostDelete, refreshStickyPosts } from "./stickyManager.js";
+import { REFRESH_STICKY_POSTS_JOB } from "./constants.js";
 import { handleCommentCreate } from "./handleCommentCreate.js";
 import { handleAppInstall, handleAppUpgrade } from "./installTasks.js";
+import { handlePostDelete, refreshStickyPosts } from "./stickyManager.js";
+import { handleWikiUpdate } from "./wikiConfig.js";
 
 Devvit.addTrigger({
     event: "ModAction",
@@ -33,7 +33,7 @@ Devvit.addTrigger({
 });
 
 Devvit.addSchedulerJob({
-    name: ScheduledJob.RefreshStickyPosts,
+    name: REFRESH_STICKY_POSTS_JOB,
     onRun: refreshStickyPosts,
 });
 

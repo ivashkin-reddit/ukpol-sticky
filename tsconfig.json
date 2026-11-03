@@ -2,6 +2,39 @@
     "extends": "@devvit/public-api/devvit.tsconfig.json",
     "compilerOptions": {
         "allowJs": false,
-        "checkJs": false
+        "checkJs": false,
+        "noEmit": true,
+
+        // Declared here rather than inherited, so a Devvit upgrade cannot loosen them.
+        "strict": true,
+        "noImplicitOverride": true,
+
+        // Beyond `strict`.
+        "exactOptionalPropertyTypes": true,
+        "noUncheckedIndexedAccess": true,
+        "noPropertyAccessFromIndexSignature": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
+        "noUncheckedSideEffectImports": true,
+        "verbatimModuleSyntax": true,
+        "erasableSyntaxOnly": true,
+
+        // Devvit's shared config adds vitest's globals to every file, app code included; tests import from "vitest" instead.
+        "types": [],
+
+        // Devvit's lib list plus ES2022.Error: its Node runtime supports `new Error(message, { cause })`, which
+        // preserve-caught-error requires when a catch block throws a new error.
+        "lib": ["ES2020", "ES2022.Error", "WebWorker"],
+
+        // WORKAROUND: library declaration files are not type-checked
+        //   cause: @devvit/shared-types/schemas/config-file.v1.d.ts (0.15.2) references `AppConfigJson`, which it never declares or imports (TS2552).
+        //   blocked: the broken declaration ships inside Devvit's published package; it cannot be fixed from this repo.
+        //   fix: Devvit declares or imports `AppConfigJson` in that file; then set "skipLibCheck": false.
+        //   until: `npx tsc --skipLibCheck false` reports no errors under node_modules/@devvit.
+        "skipLibCheck": true
     }
 }

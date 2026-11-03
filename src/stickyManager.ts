@@ -1,74 +1,62 @@
-import { JobContext, JSONObject, Post, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
-import { Config, getConfig } from "./config.js";
-import { addDays, addSeconds, format } from "date-fns";
-import { ScheduledJob } from "./constants.js";
-import { PostDelete } from "@devvit/protos";
+import { addDays, addHours, addSeconds } from "date-fns";
+import { getConfig, parsePostTime, WEEKLY_FREQUENCIES } from "./config.js";
+import type { Config, ConfigReadContext, ScheduleFrequency } from "./config.js";
+import { getSubredditName } from "./ports.js";
+import type { RedisPort, SubredditNamePort } from "./ports.js";
+import { cancelRefreshJobs, scheduleRefresh } from "./refreshJob.js";
+import type { RefreshJobContext } from "./refreshJob.js";
+import { renderTitle } from "./titleTemplate.js";
 
 const STICKY_POST_STORE = "StickyPostStore";
+const COMMENT_CAP_TTL_DAYS = 28;
+const REFRESH_JOB_DELAY_SECONDS = 5;
+// A daily post created less than this many hours before today's post time runs until tomorrow's.
+const MIN_HOURS_BEFORE_DAILY_REFRESH = 6;
+const DAYS_PER_WEEK = 7;
 
-type RedisContext = Pick<TriggerContext, "redis">;
-export type PostCreationContext = Pick<TriggerContext, "reddit" | "redis" | "subredditName">;
-
-async function getPostIdForConfig (config: Config, context: TriggerContext): Promise<string | undefined> {
-    return context.redis.hGet(STICKY_POST_STORE, config.name);
+export interface ManagedComment {
+    readonly distinguish: (makeSticky?: boolean) => Promise<void>;
 }
 
-export function hasScheduledRefresh (config: Config): config is Config & {
-    frequency: NonNullable<Config["frequency"]>;
-    postTime: string;
-} {
-    return config.frequency != null && config.postTime != null;
+/** The parts of a Devvit Post this app reads and calls. */
+export interface ManagedPost {
+    readonly id: string;
+    readonly createdAt: Date;
+    readonly numberOfComments: number;
+    readonly body?: string | undefined;
+    readonly stickied: boolean;
+    readonly addComment: (options: Readonly<{ text: string }>) => Promise<ManagedComment>;
+    readonly distinguish: () => Promise<void>;
+    readonly edit: (options: Readonly<{ text: string }>) => Promise<void>;
+    readonly lock: () => Promise<void>;
+    readonly sticky: () => Promise<void>;
+    readonly unsticky: () => Promise<void>;
 }
 
-async function deleteTrackedPosts (configNames: string[], context: RedisContext) {
-    if (configNames.length === 0) {
-        return;
-    }
+type TrackedPostContext = Readonly<{ redis: RedisPort<"del" | "hDel" | "hGetAll"> }>;
 
-    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
-    const configNameSet = new Set(configNames);
-    const postIds = Object.entries(trackedPosts)
-        .filter(([configName]) => configNameSet.has(configName))
-        .map(([, postId]) => postId);
+export type CreatePostContext = SubredditNamePort & Readonly<{
+    redis: RedisPort<"hSet" | "set">;
+    reddit: Readonly<{
+        submitPost: (options: Readonly<{ subredditName: string; text: string; title: string }>) => Promise<ManagedPost>;
+    }>;
+}>;
 
-    await context.redis.hDel(STICKY_POST_STORE, configNames);
-    for (const postId of postIds) {
-        await context.redis.del(getCommentCapKey(postId));
-    }
+export type StickyContext = ConfigReadContext & CreatePostContext & RefreshJobContext & TrackedPostContext & Readonly<{
+    redis: RedisPort<"get" | "hGet" | "hKeys">;
+    reddit: Readonly<{ getPostById: (id: string) => Promise<ManagedPost> }>;
+}>;
+
+function getCommentCapKey (postId: string): string {
+    return `CommentCap:${postId}`;
 }
 
-export async function refreshStickyPosts (_: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
-    let config = await getConfig(context);
-    if (config.length === 0) {
-        console.log("No sticky post configurations found.");
-        const trackedConfigNames = Object.keys(await context.redis.hGetAll(STICKY_POST_STORE));
-        await deleteTrackedPosts(trackedConfigNames, context);
-        return;
-    }
+function findTrackedConfigName (trackedPosts: Readonly<Record<string, string>>, postId: string): string | undefined {
+    return Object.entries(trackedPosts).find(([, trackedPostId]: readonly [string, string]): boolean => trackedPostId === postId)?.[0];
+}
 
-    // Sort posts with sticky ones first.
-    config = config.filter(item => item.enabled).sort((a, b) => {
-        if (a.sticky && !b.sticky) {
-            return -1; // a comes first
-        }
-        if (!a.sticky && b.sticky) {
-            return 1; // b comes first
-        }
-        return 0; // maintain original order for others
-    });
-
-    for (const configEntry of config) {
-        await refreshPost(configEntry, context);
-    }
-
-    await scheduleNextRefresh(context);
-
-    const configsWithTrackedPosts = await context.redis.hKeys(STICKY_POST_STORE);
-    const keysWithoutExistingConfigs = configsWithTrackedPosts.filter(key => !config.some(item => item.name === key));
-    if (keysWithoutExistingConfigs.length > 0) {
-        console.log(`Removing stale sticky post configurations: ${keysWithoutExistingConfigs.join(", ")}`);
-        await deleteTrackedPosts(keysWithoutExistingConfigs, context);
-    }
+export function hasScheduledRefresh (config: Config): config is Config & Readonly<{ frequency: ScheduleFrequency; postTime: string }> {
+    return config.frequency !== undefined && config.postTime != null;
 }
 
 export function getRefreshTime (postDate: Date, config: Config): Date | undefined {
@@ -76,11 +64,8 @@ export function getRefreshTime (postDate: Date, config: Config): Date | undefine
         return undefined;
     }
 
-    const [hoursString, minutesString] = config.postTime.split(":");
-    const hours = Number.parseInt(hoursString, 10);
-    const minutes = Number.parseInt(minutesString, 10);
-
-    const createUtcDateAtTime = (dayOffset: number) => new Date(Date.UTC(
+    const { hours, minutes } = parsePostTime(config.postTime);
+    const atPostTime = (dayOffset: number): Date => new Date(Date.UTC(
         postDate.getUTCFullYear(),
         postDate.getUTCMonth(),
         postDate.getUTCDate() + dayOffset,
@@ -89,98 +74,81 @@ export function getRefreshTime (postDate: Date, config: Config): Date | undefine
     ));
 
     if (config.frequency === "daily") {
-        const nextPostTime = createUtcDateAtTime(0);
-        if (nextPostTime.getTime() < postDate.getTime() + 6 * 60 * 60 * 1000) {
-            return createUtcDateAtTime(1);
-        }
+        const sameDay = atPostTime(0);
+        return sameDay.getTime() < addHours(postDate, MIN_HOURS_BEFORE_DAILY_REFRESH).getTime() ? atPostTime(1) : sameDay;
+    }
 
-        return nextPostTime;
-    } else {
-        const targetDay = ["sundays", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays"].indexOf(config.frequency);
-        const currentDay = postDate.getUTCDay();
-        let dayOffset = (targetDay - currentDay + 7) % 7;
+    const daysUntil = (WEEKLY_FREQUENCIES.indexOf(config.frequency) - postDate.getUTCDay() + DAYS_PER_WEEK) % DAYS_PER_WEEK;
+    // A weekly post created on its own weekday runs until that weekday next week.
+    return atPostTime(daysUntil === 0 ? DAYS_PER_WEEK : daysUntil);
+}
 
-        if (dayOffset === 0) {
-            dayOffset = 7;
-        }
+async function storeCommentCap (postId: string, config: Config, context: Readonly<{ redis: RedisPort<"set"> }>): Promise<void> {
+    await context.redis.set(getCommentCapKey(postId), JSON.stringify(config.maxComments), {
+        expiration: addDays(new Date(), COMMENT_CAP_TTL_DAYS),
+    });
+}
 
-        return createUtcDateAtTime(dayOffset);
+export async function getCommentCap (postId: string, context: Readonly<{ redis: RedisPort<"get"> }>): Promise<number | undefined> {
+    const stored = await context.redis.get(getCommentCapKey(postId));
+    if (stored === undefined) {
+        return undefined;
+    }
+
+    const cap: unknown = JSON.parse(stored);
+    if (typeof cap !== "number") {
+        throw new TypeError(`Comment cap for post ${postId} is not a number: ${stored}`);
+    }
+
+    return cap;
+}
+
+async function deleteTrackedPosts (configNames: readonly string[], context: TrackedPostContext): Promise<void> {
+    if (configNames.length === 0) {
+        return;
+    }
+
+    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
+    const commentCapKeys = configNames.flatMap((configName): string[] => {
+        const postId = trackedPosts[configName];
+        return postId === undefined ? [] : [getCommentCapKey(postId)];
+    });
+
+    await context.redis.hDel(STICKY_POST_STORE, [...configNames]);
+    if (commentCapKeys.length > 0) {
+        await context.redis.del(...commentCapKeys);
     }
 }
 
-async function refreshPost (config: Config, context: TriggerContext) {
-    const postId = await getPostIdForConfig(config, context);
-    if (postId) {
-        const post = await context.reddit.getPostById(postId);
-        const refreshTime = getRefreshTime(post.createdAt, config);
-        if ((refreshTime != null && refreshTime < new Date()) || post.numberOfComments >= config.maxComments) {
-            await createPost(post, config, context);
-            return;
-        }
+async function retirePost (post: ManagedPost, config: Config): Promise<void> {
+    if (post.stickied) {
+        await post.unsticky();
+    }
 
-        if (post.body?.trim() !== config.body.trim()) {
-            console.log(`Updating post for config ${config.name} as body has changed.`);
-            await post.edit({
-                text: config.body,
-            });
-        }
+    if (config.endNote != null && config.endNote !== "") {
+        const comment = await post.addComment({ text: config.endNote });
+        await comment.distinguish(true);
+    }
 
-        await storeCommentCap(post.id, config, context);
-    } else {
-        await createPost(undefined, config, context);
+    if (config.lockOnRefresh === true) {
+        await post.lock();
     }
 }
 
-function getCommentCapKey (postId: string) {
-    return `CommentCap:${postId}`;
-}
-
-async function storeCommentCap (postId: string, config: Config, context: RedisContext) {
-    await context.redis.set(getCommentCapKey(postId), JSON.stringify(config.maxComments), { expiration: addDays(new Date(), 28) });
-}
-
-export async function getCommentCap (postId: string, context: TriggerContext): Promise<number | undefined> {
-    const cap = await context.redis.get(getCommentCapKey(postId));
-    if (cap) {
-        return JSON.parse(cap) as number;
-    }
-}
-
-function getPostTitle (config: Config): string {
-    const title = config.title;
-    const dateRegex = /{{date (.+)}}/;
-    const matches = dateRegex.exec(title);
-    if (!matches) {
-        return title;
-    }
-
-    return title.replace(matches[0], format(new Date(), matches[1]));
-}
-
-export async function createPost (existingPost: Post | undefined, config: Config, context: PostCreationContext) {
-    if (existingPost) {
-        if (existingPost.stickied) {
-            await existingPost.unsticky();
-        }
-        if (config.endNote) {
-            const newComment = await existingPost.addComment({ text: config.endNote });
-            await newComment.distinguish(true);
-        }
-
-        if (config.lockOnRefresh) {
-            await existingPost.lock();
-        }
+export async function createPost (existingPost: ManagedPost | undefined, config: Config, context: CreatePostContext): Promise<void> {
+    if (existingPost !== undefined) {
+        await retirePost(existingPost, config);
     }
 
     const newPost = await context.reddit.submitPost({
-        title: getPostTitle(config),
+        title: renderTitle(config.title, new Date()),
         text: config.body,
-        subredditName: context.subredditName ?? await context.reddit.getCurrentSubredditName(),
+        subredditName: await getSubredditName(context),
     });
 
     await newPost.distinguish();
-    if (config.sticky) {
-        await newPost.sticky(); // config.stickyPosition;
+    if (config.sticky === true) {
+        await newPost.sticky();
     }
 
     await context.redis.hSet(STICKY_POST_STORE, { [config.name]: newPost.id });
@@ -188,80 +156,135 @@ export async function createPost (existingPost: Post | undefined, config: Config
     console.log(`Created new post for config ${config.name} with ID ${newPost.id}.`);
 }
 
-export async function refreshPostFromPostId (postId: string, context: TriggerContext) {
-    const trackedPostData = await context.redis.hGetAll(STICKY_POST_STORE);
-    const trackedPosts = Object.entries(trackedPostData).map(([name, id]) => ({ name, id }));
-    const configName = trackedPosts.find(post => post.id === postId)?.name;
-    if (!configName) {
+function isDueForRefresh (post: ManagedPost, config: Config): boolean {
+    const refreshTime = getRefreshTime(post.createdAt, config);
+    return (refreshTime !== undefined && refreshTime.getTime() < Date.now()) || post.numberOfComments >= config.maxComments;
+}
+
+async function refreshTrackedPost (post: ManagedPost, config: Config, context: StickyContext): Promise<void> {
+    if (isDueForRefresh(post, config)) {
+        await createPost(post, config, context);
         return;
     }
 
-    const config = await getConfig(context);
-    const configEntry = config.find(item => item.name === configName);
-    if (configEntry) {
-        await refreshPost(configEntry, context);
-        await scheduleNextRefresh(context);
+    if (post.body?.trim() !== config.body.trim()) {
+        console.log(`Updating post for config ${config.name} as body has changed.`);
+        await post.edit({ text: config.body });
     }
+
+    await storeCommentCap(post.id, config, context);
 }
 
-export async function scheduleNextRefresh (context: TriggerContext) {
-    // Clear down any scheduled jobs for refreshing sticky posts
-    const existingJobs = await context.scheduler.listJobs();
-    for (const job of existingJobs.filter(job => job.name === ScheduledJob.RefreshStickyPosts as string)) {
-        await context.scheduler.cancelJob(job.id);
+async function refreshPost (config: Config, context: StickyContext): Promise<void> {
+    const postId = await context.redis.hGet(STICKY_POST_STORE, config.name);
+    if (postId === undefined) {
+        await createPost(undefined, config, context);
+        return;
     }
 
-    const config = await getConfig(context);
+    await refreshTrackedPost(await context.reddit.getPostById(postId), config, context);
+}
+
+// Sticky posts take Reddit's sticky slots in the order they are stickied, and each refresh unstickies the old post
+// before stickying its replacement, so configs refresh one at a time, in order.
+async function refreshInOrder (configs: readonly Config[], context: StickyContext): Promise<void> {
+    const [first, ...rest] = configs;
+    if (first === undefined) {
+        return;
+    }
+
+    await refreshPost(first, context);
+    await refreshInOrder(rest, context);
+}
+
+function earliest (dates: readonly (Date | undefined)[]): Date | undefined {
+    return dates
+        .filter((date): date is Date => date !== undefined)
+        .sort((first, second): number => first.getTime() - second.getTime())[0];
+}
+
+async function findNextRefreshTime (context: StickyContext): Promise<Date | undefined> {
+    const configs = (await getConfig(context)).filter((config): boolean => config.enabled && hasScheduledRefresh(config));
     const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
-
-    let nextRefreshDue: Date | undefined;
-
-    for (const configEntry of config) {
-        if (!configEntry.enabled) {
-            continue;
+    const refreshTimes = await Promise.all(configs.map(async (config): Promise<Date | undefined> => {
+        const postId = trackedPosts[config.name];
+        if (postId === undefined) {
+            return undefined;
         }
 
-        if (!hasScheduledRefresh(configEntry)) {
-            continue;
-        }
+        const post = await context.reddit.getPostById(postId);
+        return getRefreshTime(post.createdAt, config);
+    }));
 
-        const postId = trackedPosts[configEntry.name];
-        if (postId) {
-            const post = await context.reddit.getPostById(postId);
-            const refreshTime = getRefreshTime(post.createdAt, configEntry);
-            if (refreshTime && (!nextRefreshDue || refreshTime < nextRefreshDue)) {
-                nextRefreshDue = refreshTime;
-            }
-        }
-    }
+    return earliest(refreshTimes);
+}
 
-    if (!nextRefreshDue) {
+export async function scheduleNextRefresh (context: StickyContext): Promise<void> {
+    // Read everything first, so a config that cannot be read fails before any pending job is cancelled.
+    const nextRefreshDue = await findNextRefreshTime(context);
+    await cancelRefreshJobs(context);
+    if (nextRefreshDue === undefined) {
         console.log("No scheduled sticky post refreshes found.");
         return;
     }
 
-    if (nextRefreshDue < new Date()) {
-        nextRefreshDue = new Date();
-    }
-
-    await context.scheduler.runJob({
-        name: ScheduledJob.RefreshStickyPosts,
-        runAt: addSeconds(nextRefreshDue, 5),
-    });
-
-    console.log(`Scheduled next sticky post refresh at ${nextRefreshDue.toISOString()}.`);
+    const refreshAt = new Date(Math.max(nextRefreshDue.getTime(), Date.now()));
+    await scheduleRefresh(context, addSeconds(refreshAt, REFRESH_JOB_DELAY_SECONDS));
+    console.log(`Scheduled next sticky post refresh at ${refreshAt.toISOString()}.`);
 }
 
-export async function handlePostDelete (event: PostDelete, context: TriggerContext) {
-    const trackedPosts = await context.redis.hGetAll(STICKY_POST_STORE);
-    const trackedPost = Object.entries(trackedPosts)
-        .map(([name, postId]) => ({ name, id: postId }))
-        .find(entry => entry.id === event.postId);
+// Sticky configs first; Array.prototype.sort is stable, so each group keeps its wiki page order.
+function enabledStickyFirst (configs: readonly Config[]): readonly Config[] {
+    return configs
+        .filter((config): boolean => config.enabled)
+        .sort((first, second): number => Number(second.sticky === true) - Number(first.sticky === true));
+}
 
-    if (!trackedPost) {
+async function removeStaleTrackedPosts (activeConfigs: readonly Config[], context: StickyContext): Promise<void> {
+    const trackedConfigNames = await context.redis.hKeys(STICKY_POST_STORE);
+    const staleConfigNames = trackedConfigNames
+        .filter((configName): boolean => !activeConfigs.some((config): boolean => config.name === configName));
+    if (staleConfigNames.length > 0) {
+        console.log(`Removing stale sticky post configurations: ${staleConfigNames.join(", ")}`);
+        await deleteTrackedPosts(staleConfigNames, context);
+    }
+}
+
+export async function refreshStickyPosts (_event: unknown, context: StickyContext): Promise<void> {
+    const configs = await getConfig(context);
+    if (configs.length === 0) {
+        console.log("No sticky post configurations found.");
+        await deleteTrackedPosts(Object.keys(await context.redis.hGetAll(STICKY_POST_STORE)), context);
         return;
     }
 
-    await context.redis.hDel(STICKY_POST_STORE, [trackedPost.name]);
+    const activeConfigs = enabledStickyFirst(configs);
+    await refreshInOrder(activeConfigs, context);
+    await scheduleNextRefresh(context);
+    await removeStaleTrackedPosts(activeConfigs, context);
+}
+
+export async function refreshPostFromPostId (postId: string, context: StickyContext): Promise<void> {
+    const configName = findTrackedConfigName(await context.redis.hGetAll(STICKY_POST_STORE), postId);
+    if (configName === undefined) {
+        return;
+    }
+
+    const config = (await getConfig(context)).find((candidate): boolean => candidate.name === configName);
+    if (config === undefined) {
+        return;
+    }
+
+    await refreshPost(config, context);
+    await scheduleNextRefresh(context);
+}
+
+export async function handlePostDelete (event: Readonly<{ postId: string }>, context: TrackedPostContext): Promise<void> {
+    const configName = findTrackedConfigName(await context.redis.hGetAll(STICKY_POST_STORE), event.postId);
+    if (configName === undefined) {
+        return;
+    }
+
+    await context.redis.hDel(STICKY_POST_STORE, [configName]);
     await context.redis.del(getCommentCapKey(event.postId));
 }
