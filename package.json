@@ -10,25 +10,25 @@
     "test:integration": "vitest --run tests"
   },
   "dependencies": {
-    "@devvit/protos": "0.12.20",
-    "@devvit/public-api": "0.12.20",
+    "@devvit/protos": "0.15.2",
+    "@devvit/public-api": "0.15.2",
     "@types/json2md": "^1.5.4",
-    "@types/lodash": "^4.17.24",
-    "ajv": "^8.18.0",
-    "date-fns": "^4.1.0",
+    "@types/lodash": "^4.17.27",
+    "ajv": "^8.20.0",
+    "date-fns": "^4.4.0",
     "json2md": "^2.0.3",
     "lodash": "^4.18.1",
-    "yaml": "^2.8.3"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@devvit/test": "0.12.20",
-    "@eslint/js": "^9.39.4",
-    "@stylistic/eslint-plugin": "^4.2.0",
-    "@vitest/eslint-plugin": "^1.6.16",
-    "devvit": "0.12.20",
-    "eslint": "^9.39.4",
-    "typescript": "5.8.3",
-    "typescript-eslint": "^8.59.0",
-    "vitest": "^3.2.2"
+    "@devvit/test": "0.15.2",
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@vitest/eslint-plugin": "^1.6.28",
+    "devvit": "0.15.2",
+    "eslint": "^10.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
   }
 }

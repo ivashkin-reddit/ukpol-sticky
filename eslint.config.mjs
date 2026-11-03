@@ -1,9 +1,10 @@
 import eslint from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 import stylistic from '@stylistic/eslint-plugin'
 import vitest from "@vitest/eslint-plugin"
 
-export default tseslint.config(
+export default defineConfig(
     eslint.configs.recommended,
     ...tseslint.configs.strictTypeChecked,
     ...tseslint.configs.stylisticTypeChecked,
@@ -64,7 +65,7 @@ export default tseslint.config(
             // Extra code styling rules
             "@stylistic/array-bracket-newline": ["error", "consistent"],
             "@stylistic/array-element-newline": ["error", "consistent"],
-            "@stylistic/func-call-spacing": ["error", "never"],
+            "@stylistic/function-call-spacing": ["error", "never"],
             "@stylistic/function-paren-newline": ["error", "multiline"],
             "@stylistic/implicit-arrow-linebreak": ["error", "beside"],
 

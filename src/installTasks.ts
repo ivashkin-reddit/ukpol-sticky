@@ -2,6 +2,11 @@ import { AppInstall, AppUpgrade } from "@devvit/protos";
 import { TriggerContext, WikiPagePermissionLevel } from "@devvit/public-api";
 import { scheduleNextRefresh } from "./stickyManager.js";
 
+// @devvit/public-api only re-exports WikiPagePermissionLevel as a type, so the enum has no runtime value to import.
+// The member-type annotation still makes tsc check this literal against Devvit's definition.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- enum value is not importable (see above)
+const MODS_ONLY: WikiPagePermissionLevel.MODS_ONLY = 2;
+
 export async function handleAppInstall (_: AppInstall, context: TriggerContext) {
     const lines = [
         "# Sticky Manager configuration file",
@@ -45,7 +50,7 @@ export async function handleAppInstall (_: AppInstall, context: TriggerContext) 
     await context.reddit.updateWikiPageSettings({
         subredditName: context.subredditName ?? await context.reddit.getCurrentSubredditName(),
         page: "stickymgr/config",
-        permLevel: WikiPagePermissionLevel.MODS_ONLY,
+        permLevel: MODS_ONLY,
         listed: true,
     });
 }

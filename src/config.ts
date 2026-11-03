@@ -1,5 +1,6 @@
 import { ModAction } from "@devvit/protos";
 import { TriggerContext, WikiPage } from "@devvit/public-api";
+import { asT5ID } from "@devvit/public-api/types/tid.js";
 import Ajv, { JSONSchemaType } from "ajv";
 import json2md from "json2md";
 import { compact, uniq } from "lodash";
@@ -62,6 +63,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     const lastRevision = await context.redis.get(lastRevisionKey);
 
     const subredditName = context.subredditName ?? await context.reddit.getCurrentSubredditName();
+    const subredditId = asT5ID(context.subredditId);
     let wikiPage: WikiPage;
     try {
         wikiPage = await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
@@ -80,7 +82,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
 
     if (parseErrors.length > 0) {
         await context.reddit.modMail.createModInboxConversation({
-            subredditId: context.subredditId,
+            subredditId,
             subject: `Invalid YAML in wiki page ${CONFIG_PAGE}`,
             bodyMarkdown: json2md([
                 { p: `/u/${event.moderator.name}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
@@ -104,7 +106,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     if (!valid) {
         console.error(`Invalid config in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, ajv.errorsText());
         await context.reddit.modMail.createModInboxConversation({
-            subredditId: context.subredditId,
+            subredditId,
             subject: `Invalid config in wiki page ${CONFIG_PAGE}`,
             bodyMarkdown: json2md([
                 { p: `/u/${event.moderator.name}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
@@ -122,7 +124,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
 
         if (hasFrequency !== hasPostTime) {
             await context.reddit.modMail.createModInboxConversation({
-                subredditId: context.subredditId,
+                subredditId,
                 subject: `Incomplete schedule in config ${config.name}`,
                 bodyMarkdown: json2md([
                     { p: `/u/${event.moderator.name}, config ${config.name} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.` },
@@ -138,7 +140,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
                 format(new Date(), matches[1]);
             } catch (error) {
                 await context.reddit.modMail.createModInboxConversation({
-                    subredditId: context.subredditId,
+                    subredditId,
                     subject: `Invalid date format in config ${config.name}`,
                     bodyMarkdown: json2md([
                         { p: `/u/${event.moderator.name}, the date format in config ${config.name} is invalid. Please fix it.` },
@@ -154,7 +156,7 @@ export async function handleWikiUpdate (event: ModAction, context: TriggerContex
     const uniqueNames = uniq(configs.map(config => config.name));
     if (uniqueNames.length !== configs.length) {
         await context.reddit.modMail.createModInboxConversation({
-            subredditId: context.subredditId,
+            subredditId,
             subject: `Duplicate config names in wiki page ${CONFIG_PAGE}`,
             bodyMarkdown: json2md([
                 { p: `/u/${event.moderator.name}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.` },
