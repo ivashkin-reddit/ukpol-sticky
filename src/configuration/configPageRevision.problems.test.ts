@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { createWikiFakes, WIKI_REVISION_EVENT } from "../tests/support/fakeWikiContext.js";
-import { silenceConsole } from "../tests/support/silenceConsole.js";
-import { handleWikiUpdate } from "./wikiConfig.js";
+import { createConfigPageFakes } from "../../tests/support/fakeConfigPageContext.js";
+import { silenceConsole } from "../../tests/support/silenceConsole.js";
+import { applyConfigPageRevision } from "./configPageRevision.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
 
 interface ProblemCase {
     readonly problem: string;
-    readonly wikiContent: string;
+    readonly pageContent: string;
     readonly subject: string;
+    readonly bodyMarkdown: string;
     readonly errorLogs: readonly (readonly unknown[])[];
 }
 
 const PROBLEM_CASES: readonly ProblemCase[] = [
     {
         problem: "invalid YAML",
-        wikiContent: ["name: broken-thread", "enabled: true", "title: Broken thread", 'body: "unterminated'].join("\n"),
+        pageContent: ["name: broken-thread", "enabled: true", "title: Broken thread", 'body: "unterminated'].join("\n"),
         subject: "Invalid YAML in wiki page stickymgr/config",
+        bodyMarkdown:
+            '\n/u/mod_user, the wiki page stickymgr/config contains invalid YAML. Please fix it.\n\n\nErrors:\n\n> Document 1: Missing closing "quote at line 4, column 20:\n> \n> body: "unterminated\n>                    ^\n> \n\n\nThe existing config will be used until the issue is resolved.\n',
         errorLogs: [
             [
                 "Invalid YAML in wiki page stickymgr/config in subreddit testsub:",
@@ -27,7 +30,7 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
     },
     {
         problem: "a schema violation",
-        wikiContent: [
+        pageContent: [
             "name: invalid-thread",
             "enabled: true",
             "title: Invalid thread",
@@ -35,13 +38,15 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "body: bad",
         ].join("\n"),
         subject: "Invalid config in wiki page stickymgr/config",
+        bodyMarkdown:
+            "\n/u/mod_user, the config in wiki page stickymgr/config is invalid. Please fix it.\n\n\nErrors:\n\n> data/0/maxComments must be >= 1\n\n\nThe existing config will be used until the issue is resolved.\n",
         errorLogs: [
             ["Invalid config in wiki page stickymgr/config in subreddit testsub:", "data/0/maxComments must be >= 1"],
         ],
     },
     {
         problem: "an empty frequency",
-        wikiContent: [
+        pageContent: [
             "name: empty-thread",
             "enabled: true",
             "title: Empty",
@@ -50,6 +55,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "body: b",
         ].join("\n"),
         subject: "Invalid config in wiki page stickymgr/config",
+        bodyMarkdown:
+            "\n/u/mod_user, the config in wiki page stickymgr/config is invalid. Please fix it.\n\n\nErrors:\n\n> data/0/frequency must be equal to one of the allowed values\n\n\nThe existing config will be used until the issue is resolved.\n",
         errorLogs: [
             [
                 "Invalid config in wiki page stickymgr/config in subreddit testsub:",
@@ -59,7 +66,7 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
     },
     {
         problem: "a frequency without a postTime",
-        wikiContent: [
+        pageContent: [
             "name: incomplete-thread",
             "enabled: true",
             "title: Incomplete",
@@ -68,11 +75,13 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "body: hello",
         ].join("\n"),
         subject: "Incomplete schedule in config incomplete-thread",
+        bodyMarkdown:
+            "\n/u/mod_user, config incomplete-thread must define both frequency and postTime, or omit both to refresh only when maxComments is reached.\n",
         errorLogs: [],
     },
     {
         problem: "an invalid date format",
-        wikiContent: [
+        pageContent: [
             "name: dated-thread",
             "enabled: true",
             "title: Daily {{date nope}}",
@@ -80,6 +89,8 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "body: hello",
         ].join("\n"),
         subject: "Invalid date format in config dated-thread",
+        bodyMarkdown:
+            "\n/u/mod_user, the date format in config dated-thread is invalid. Please fix it.\n\n\nThe date format `nope` is not a valid format string.\n",
         errorLogs: [
             [
                 "Invalid date format in config dated-thread:",
@@ -89,7 +100,7 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
     },
     {
         problem: "duplicate config names",
-        wikiContent: [
+        pageContent: [
             "name: twin",
             "enabled: true",
             "title: One",
@@ -103,11 +114,13 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
             "body: b",
         ].join("\n"),
         subject: "Duplicate config names in wiki page stickymgr/config",
+        bodyMarkdown:
+            "\n/u/mod_user, there are duplicate config names in wiki page stickymgr/config. Please ensure all config names are unique.\n",
         errorLogs: [],
     },
 ];
 
-describe("handleWikiUpdate with an invalid config page", (): void => {
+describe("applyConfigPageRevision with an invalid config page", (): void => {
     it.for(PROBLEM_CASES)(
         "reports $problem to modmail and keeps the stored config",
         TEST_OPTIONS,
@@ -115,11 +128,13 @@ describe("handleWikiUpdate with an invalid config page", (): void => {
             expect.assertions(4);
 
             const errorSpy = silenceConsole("error");
-            const fakes = createWikiFakes({ wikiContent: problemCase.wikiContent });
-            await handleWikiUpdate(WIKI_REVISION_EVENT, fakes.context);
+            const fakes = createConfigPageFakes({ pageContent: problemCase.pageContent });
 
-            expect(fakes.createModInboxConversation.mock.lastCall?.[0].subject).toBe(problemCase.subject);
-            expect(fakes.createModInboxConversation.mock.lastCall?.[0].subredditId).toBe("t5_testsub");
+            await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("rejected");
+
+            expect(fakes.createModInboxConversation.mock.lastCall).toStrictEqual([
+                { subredditId: "t5_testsub", subject: problemCase.subject, bodyMarkdown: problemCase.bodyMarkdown },
+            ]);
             expect(fakes.redisSet).not.toHaveBeenCalled();
             expect(errorSpy.mock.calls).toStrictEqual(problemCase.errorLogs);
         },

@@ -1,36 +1,36 @@
 import { addDays } from "date-fns";
-import type { RedisPort } from "./ports.js";
+import type { RedisPort } from "../platform/index.js";
 
-// Both keys are live state in every subreddit the app is installed on: config name -> ID of the post it manages,
-// and each managed post's comment cap.
+// Both keys are live state in every installed subreddit: thread config name -> ID of its live post, and each live
+// post's comment cap.
 const STICKY_POST_STORE = "StickyPostStore";
 const COMMENT_CAP_TTL_DAYS = 28;
 
-export type TrackedPostContext = Readonly<{ redis: RedisPort<"del" | "hDel" | "hGetAll"> }>;
+export type LivePostCleanupContext = Readonly<{ redis: RedisPort<"del" | "hDel" | "hGetAll"> }>;
 
 function getCommentCapKey(postId: string): string {
     return `CommentCap:${postId}`;
 }
 
-/** Config name -> ID of the post currently managed for it. */
-export async function getTrackedPosts(
+/** Thread config name -> ID of its live post. */
+export async function getLivePostIds(
     context: Readonly<{ redis: RedisPort<"hGetAll"> }>,
 ): Promise<Readonly<Record<string, string>>> {
     return await context.redis.hGetAll(STICKY_POST_STORE);
 }
 
-export async function getTrackedPostId(
+export async function getLivePostId(
     context: Readonly<{ redis: RedisPort<"hGet"> }>,
     configName: string,
 ): Promise<string | undefined> {
     return await context.redis.hGet(STICKY_POST_STORE, configName);
 }
 
-export async function getTrackedConfigNames(context: Readonly<{ redis: RedisPort<"hKeys"> }>): Promise<string[]> {
+export async function getConfigNamesWithLivePosts(context: Readonly<{ redis: RedisPort<"hKeys"> }>): Promise<string[]> {
     return await context.redis.hKeys(STICKY_POST_STORE);
 }
 
-export async function trackPost(
+export async function setLivePost(
     context: Readonly<{ redis: RedisPort<"hSet"> }>,
     configName: string,
     postId: string,
@@ -38,21 +38,21 @@ export async function trackPost(
     await context.redis.hSet(STICKY_POST_STORE, { [configName]: postId });
 }
 
-export function findTrackedConfigName(
-    trackedPosts: Readonly<Record<string, string>>,
+export function findConfigNameOfLivePost(
+    livePostIds: Readonly<Record<string, string>>,
     postId: string,
 ): string | undefined {
-    return Object.entries(trackedPosts).find(
-        ([, trackedPostId]: readonly [string, string]): boolean => trackedPostId === postId,
+    return Object.entries(livePostIds).find(
+        ([, livePostId]: readonly [string, string]): boolean => livePostId === postId,
     )?.[0];
 }
 
 export async function storeCommentCap(
     postId: string,
-    maxComments: number,
+    commentCap: number,
     context: Readonly<{ redis: RedisPort<"set"> }>,
 ): Promise<void> {
-    await context.redis.set(getCommentCapKey(postId), JSON.stringify(maxComments), {
+    await context.redis.set(getCommentCapKey(postId), JSON.stringify(commentCap), {
         expiration: addDays(new Date(), COMMENT_CAP_TTL_DAYS),
     });
 }
@@ -74,15 +74,15 @@ export async function getCommentCap(
     return cap;
 }
 
-/** Stops tracking the named configs and forgets their posts' comment caps. */
-export async function deleteTrackedPosts(configNames: readonly string[], context: TrackedPostContext): Promise<void> {
+/** Stops tracking the named thread configs' live posts and forgets their comment caps. */
+export async function forgetLivePosts(configNames: readonly string[], context: LivePostCleanupContext): Promise<void> {
     if (configNames.length === 0) {
         return;
     }
 
-    const trackedPosts = await getTrackedPosts(context);
+    const livePostIds = await getLivePostIds(context);
     const commentCapKeys = configNames.flatMap((configName): string[] => {
-        const postId = trackedPosts[configName];
+        const postId = livePostIds[configName];
         return postId === undefined ? [] : [getCommentCapKey(postId)];
     });
 
@@ -92,15 +92,13 @@ export async function deleteTrackedPosts(configNames: readonly string[], context
     }
 }
 
-export async function handlePostDelete(
-    event: Readonly<{ postId: string }>,
-    context: TrackedPostContext,
-): Promise<void> {
-    const configName = findTrackedConfigName(await getTrackedPosts(context), event.postId);
+/** A deleted post that was a live post stops being tracked, and its comment cap is forgotten. */
+export async function forgetDeletedPost(postId: string, context: LivePostCleanupContext): Promise<void> {
+    const configName = findConfigNameOfLivePost(await getLivePostIds(context), postId);
     if (configName === undefined) {
         return;
     }
 
     await context.redis.hDel(STICKY_POST_STORE, [configName]);
-    await context.redis.del(getCommentCapKey(event.postId));
+    await context.redis.del(getCommentCapKey(postId));
 }

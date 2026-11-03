@@ -1,7 +1,7 @@
 import type { RedisClient, Scheduler as DevvitScheduler, TriggerContext } from "@devvit/public-api";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
-import type { ManagedComment, ManagedPost, StickyContext } from "../../src/stickyManager.js";
+import type { ManagedComment, ManagedPost, RotationContext } from "../../src/rotation/index.js";
 
 export interface FakeRedis {
     readonly del: Mock<RedisClient["del"]>;
@@ -19,8 +19,8 @@ export type CreateModInboxConversation = TriggerContext["reddit"]["modMail"]["cr
 export interface FakeReddit {
     readonly modMail: Readonly<{ createModInboxConversation: Mock<CreateModInboxConversation> }>;
     readonly getCurrentSubredditName: Mock<() => Promise<string>>;
-    readonly getPostById: Mock<StickyContext["reddit"]["getPostById"]>;
-    readonly submitPost: Mock<StickyContext["reddit"]["submitPost"]>;
+    readonly getPostById: Mock<RotationContext["reddit"]["getPostById"]>;
+    readonly submitPost: Mock<RotationContext["reddit"]["submitPost"]>;
 }
 
 export interface FakeScheduler {
@@ -29,15 +29,15 @@ export interface FakeScheduler {
     readonly runJob: Mock<DevvitScheduler["runJob"]>;
 }
 
-export interface FakeStickyContext {
-    readonly context: StickyContext;
+export interface FakeRotationContext {
+    readonly context: RotationContext;
     readonly redis: FakeRedis;
     readonly reddit: FakeReddit;
     readonly scheduler: FakeScheduler;
 }
 
-/** A StickyContext whose every dependency is a typed mock with an empty-store default. */
-export function createFakeStickyContext(subredditName?: string): FakeStickyContext {
+/** A RotationContext whose every dependency is a typed mock with an empty-store default. */
+export function createFakeRotationContext(subredditName?: string): FakeRotationContext {
     const redis: FakeRedis = {
         del: vi.fn<RedisClient["del"]>().mockResolvedValue(undefined),
         get: vi.fn<RedisClient["get"]>().mockResolvedValue(undefined),
@@ -53,8 +53,8 @@ export function createFakeStickyContext(subredditName?: string): FakeStickyConte
             createModInboxConversation: vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id"),
         },
         getCurrentSubredditName: vi.fn<() => Promise<string>>().mockResolvedValue("currentsub"),
-        getPostById: vi.fn<StickyContext["reddit"]["getPostById"]>(),
-        submitPost: vi.fn<StickyContext["reddit"]["submitPost"]>(),
+        getPostById: vi.fn<RotationContext["reddit"]["getPostById"]>(),
+        submitPost: vi.fn<RotationContext["reddit"]["submitPost"]>(),
     };
     const scheduler: FakeScheduler = {
         cancelJob: vi.fn<DevvitScheduler["cancelJob"]>().mockResolvedValue(undefined),

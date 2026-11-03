@@ -1,10 +1,10 @@
 import { redis } from "@devvit/redis";
 import { describe, expect, vi } from "vitest";
-import { getConfig, storeConfig, UnreadableConfigError } from "../src/config.js";
-import type { ConfigReadContext } from "../src/config.js";
+import { getThreadConfigs, storeThreadConfigs, UnreadableConfigError } from "../src/configuration/index.js";
+import type { ConfigReadContext } from "../src/configuration/index.js";
 import { TEST_SUBREDDIT_ID } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
-import type { CreateModInboxConversation } from "./support/fakeStickyContext.js";
+import type { CreateModInboxConversation } from "./support/fakeRotationContext.js";
 
 // Each test gets a fresh in-memory Devvit world; five seconds covers that setup on a slow machine.
 const TEST_OPTIONS = { timeout: 5000 };
@@ -43,14 +43,14 @@ describe("an unreadable stored config", (): void => {
 
             const { context, createModInboxConversation } = await storeUnreadableConfig();
 
-            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
-            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            await expect(getThreadConfigs(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            await expect(getThreadConfigs(context)).rejects.toBeInstanceOf(UnreadableConfigError);
             expect(createModInboxConversation).toHaveBeenCalledExactlyOnceWith(EXPECTED_ALERT);
 
-            await storeConfig(context, []);
+            await storeThreadConfigs(context, []);
             await redis.set("Configuration", "{}");
 
-            await expect(getConfig(context)).rejects.toBeInstanceOf(UnreadableConfigError);
+            await expect(getThreadConfigs(context)).rejects.toBeInstanceOf(UnreadableConfigError);
             expect(createModInboxConversation).toHaveBeenNthCalledWith(2, EXPECTED_ALERT);
         },
     );
@@ -60,7 +60,7 @@ describe("an unreadable stored config", (): void => {
 
         const { context, createModInboxConversation } = await storeUnreadableConfig();
 
-        const outcomes = await Promise.allSettled([getConfig(context), getConfig(context)]);
+        const outcomes = await Promise.allSettled([getThreadConfigs(context), getThreadConfigs(context)]);
 
         expect(
             outcomes.map((outcome: Readonly<PromiseSettledResult<unknown>>): string => outcome.status),

@@ -1,15 +1,15 @@
 import { redis } from "@devvit/redis";
 import { describe, expect } from "vitest";
-import { handlePostDelete } from "../src/trackedPosts.js";
+import { forgetDeletedPost } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 
 // Each test gets a fresh in-memory Devvit world; five seconds covers that setup on a slow machine.
 const TEST_OPTIONS = { timeout: 5000 };
 
-describe(handlePostDelete, (): void => {
+describe(forgetDeletedPost, (): void => {
     devvitIt(
-        "forgets a deleted tracked post and its comment cap, keeping the others",
+        "forgets a deleted live post and its comment cap, keeping the others",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(3);
@@ -18,7 +18,7 @@ describe(handlePostDelete, (): void => {
             await redis.set("CommentCap:t3_alpha", "150");
             await redis.set("CommentCap:t3_beta", "250");
 
-            await handlePostDelete({ postId: "t3_alpha" }, HARNESS_CONTEXT);
+            await forgetDeletedPost("t3_alpha", HARNESS_CONTEXT);
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
             await expect(redis.get("CommentCap:t3_alpha")).resolves.toBeUndefined();
@@ -26,13 +26,13 @@ describe(handlePostDelete, (): void => {
         },
     );
 
-    devvitIt("ignores a deleted post that is not tracked", TEST_OPTIONS, async (): Promise<void> => {
+    devvitIt("ignores a deleted post that is not a live post", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
 
         await redis.hSet("StickyPostStore", { beta: "t3_beta" });
         await redis.set("CommentCap:t3_other", "100");
 
-        await handlePostDelete({ postId: "t3_other" }, HARNESS_CONTEXT);
+        await forgetDeletedPost("t3_other", HARNESS_CONTEXT);
 
         await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
         await expect(redis.get("CommentCap:t3_other")).resolves.toBe("100");

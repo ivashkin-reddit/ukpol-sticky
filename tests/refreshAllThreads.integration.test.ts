@@ -2,9 +2,9 @@ import { asT3ID } from "@devvit/public-api/types/tid.js";
 import { reddit } from "@devvit/reddit";
 import { redis } from "@devvit/redis";
 import { describe, expect, vi } from "vitest";
-import { storeConfig } from "../src/config.js";
-import type { Config } from "../src/config.js";
-import { refreshStickyPosts } from "../src/stickyManager.js";
+import { storeThreadConfigs } from "../src/configuration/index.js";
+import type { ThreadConfig } from "../src/configuration/index.js";
+import { refreshAllThreads } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -12,7 +12,7 @@ import { freezeTime } from "./support/fakeClock.js";
 // Each test gets a fresh in-memory Devvit world; five seconds covers that setup on a slow machine.
 const TEST_OPTIONS = { timeout: 5000 };
 
-const ACTIVE_CONFIG: Config = {
+const ACTIVE_CONFIG: ThreadConfig = {
     name: "active-thread",
     enabled: true,
     title: "Active thread",
@@ -27,28 +27,28 @@ async function refreshJobTimes(): Promise<string[]> {
     return (await listRefreshJobs()).map((job: Readonly<{ runAt: Date }>): string => job.runAt.toISOString());
 }
 
-/** Fakes the clock, silences logging, stores `configs` and tracks a post for the active config made at 05:00. */
-async function trackActivePost(configs: readonly Config[], body: string): Promise<string> {
+/** Fakes the clock, silences logging, stores `configs` and submits the active thread config's post at 05:00. */
+async function submitActivePost(configs: readonly ThreadConfig[], body: string): Promise<string> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    await storeConfig(HARNESS_CONTEXT, configs);
+    await storeThreadConfigs(HARNESS_CONTEXT, configs);
     const activePostId = await submitPostAt("2026-04-21T05:00:00Z", "Active thread", body);
     vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
     return activePostId;
 }
 
-describe(refreshStickyPosts, (): void => {
+describe(refreshAllThreads, (): void => {
     devvitIt(
-        "forgets tracked posts whose config is gone and keeps the active one",
+        "forgets live posts whose thread config is gone and keeps the others",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(4);
 
-            const activePostId = await trackActivePost([ACTIVE_CONFIG], "Active body");
+            const activePostId = await submitActivePost([ACTIVE_CONFIG], "Active body");
             await redis.hSet("StickyPostStore", { "active-thread": activePostId, "stale-thread": "t3_stale" });
             await redis.set("CommentCap:t3_stale", "150");
 
-            await refreshStickyPosts({}, HARNESS_CONTEXT);
+            await refreshAllThreads(HARNESS_CONTEXT);
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
             await expect(redis.get("CommentCap:t3_stale")).resolves.toBeUndefined();
@@ -57,22 +57,18 @@ describe(refreshStickyPosts, (): void => {
         },
     );
 
-    devvitIt(
-        "edits the body of an active tracked post instead of replacing it",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(3);
+    devvitIt("edits the body of a live post instead of replacing it", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
 
-            const activePostId = await trackActivePost([{ ...ACTIVE_CONFIG, body: "Updated body" }], "Old body");
-            await redis.hSet("StickyPostStore", { "active-thread": activePostId });
+        const activePostId = await submitActivePost([{ ...ACTIVE_CONFIG, body: "Updated body" }], "Old body");
+        await redis.hSet("StickyPostStore", { "active-thread": activePostId });
 
-            await refreshStickyPosts({}, HARNESS_CONTEXT);
+        await refreshAllThreads(HARNESS_CONTEXT);
 
-            await expect(reddit.getPostById(asT3ID(activePostId))).resolves.toHaveProperty("body", "Updated body");
-            await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
-            await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
-        },
-    );
+        await expect(reddit.getPostById(asT3ID(activePostId))).resolves.toHaveProperty("body", "Updated body");
+        await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
+        await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
+    });
 
     devvitIt(
         "forgets disabled configs' posts and leaves them out of scheduling",
@@ -80,7 +76,7 @@ describe(refreshStickyPosts, (): void => {
         async (): Promise<void> => {
             expect.assertions(3);
 
-            const disabledConfig: Config = {
+            const disabledConfig: ThreadConfig = {
                 ...ACTIVE_CONFIG,
                 name: "disabled-thread",
                 enabled: false,
@@ -88,13 +84,13 @@ describe(refreshStickyPosts, (): void => {
                 title: "Disabled thread",
                 body: "Disabled body",
             };
-            const activePostId = await trackActivePost([ACTIVE_CONFIG, disabledConfig], "Active body");
+            const activePostId = await submitActivePost([ACTIVE_CONFIG, disabledConfig], "Active body");
             const disabledPostId = await submitPostAt("2026-04-21T05:00:00Z", "Disabled thread", "Disabled body");
             vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
             await redis.hSet("StickyPostStore", { "active-thread": activePostId, "disabled-thread": disabledPostId });
             await redis.set(`CommentCap:${disabledPostId}`, "150");
 
-            await refreshStickyPosts({}, HARNESS_CONTEXT);
+            await refreshAllThreads(HARNESS_CONTEXT);
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
             await expect(redis.get(`CommentCap:${disabledPostId}`)).resolves.toBeUndefined();

@@ -1,9 +1,7 @@
 import type { WikiPagePermissionLevel } from "@devvit/public-api";
-import { CONFIG_PAGE } from "./config.js";
-import { getSubredditName } from "./ports.js";
-import type { SubredditNamePort } from "./ports.js";
-import { scheduleNextRefresh } from "./stickyManager.js";
-import type { StickyContext } from "./stickyManager.js";
+import { getSubredditName } from "../platform/index.js";
+import type { SubredditNamePort } from "../platform/index.js";
+import { CONFIG_PAGE } from "./threadConfig.js";
 
 // WORKAROUND: WikiPagePermissionLevel.MODS_ONLY is written as its numeric value
 //   cause: @devvit/public-api 0.15.2 re-exports @devvit/reddit with `export type *`, and @devvit/reddit's package
@@ -48,7 +46,7 @@ const CONFIG_PAGE_TEMPLATE = [
     "# Just like Automoderator, you can create multiple sticky posts by adding more entries, separated with ---.",
 ].join("\n");
 
-export type InstallContext = SubredditNamePort &
+export type ConfigPageInstallContext = SubredditNamePort &
     Readonly<{
         reddit: Readonly<{
             updateWikiPage: (
@@ -65,7 +63,8 @@ export type InstallContext = SubredditNamePort &
         }>;
     }>;
 
-export async function handleAppInstall(_event: unknown, context: InstallContext): Promise<void> {
+/** Writes the commented example to the config page and makes the page editable by moderators only. */
+export async function installConfigPage(context: ConfigPageInstallContext): Promise<void> {
     const subredditName = await getSubredditName(context);
     await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content: CONFIG_PAGE_TEMPLATE });
     await context.reddit.updateWikiPageSettings({
@@ -74,8 +73,4 @@ export async function handleAppInstall(_event: unknown, context: InstallContext)
         permLevel: MODS_ONLY,
         listed: true,
     });
-}
-
-export async function handleAppUpgrade(_event: unknown, context: StickyContext): Promise<void> {
-    await scheduleNextRefresh(context);
 }

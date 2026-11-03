@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { freezeTime } from "../tests/support/fakeClock.js";
-import { createFakePost, createFakeStickyContext } from "../tests/support/fakeStickyContext.js";
-import type { FakePost, FakeStickyContext } from "../tests/support/fakeStickyContext.js";
-import type { Config } from "./config.js";
-import { createPost } from "./stickyManager.js";
+import { freezeTime } from "../../tests/support/fakeClock.js";
+import { createFakePost, createFakeRotationContext } from "../../tests/support/fakeRotationContext.js";
+import type { FakePost, FakeRotationContext } from "../../tests/support/fakeRotationContext.js";
+import type { ThreadConfig } from "../configuration/index.js";
+import { rotateLivePost } from "./rotation.js";
 
 const TEST_OPTIONS = { timeout: 1000 };
 
-const ROTATING_CONFIG: Config = {
+const ROTATING_CONFIG: ThreadConfig = {
     name: "daily-thread",
     enabled: true,
     title: "Daily thread {{date yyyy-MM-dd}}",
@@ -19,15 +19,15 @@ const ROTATING_CONFIG: Config = {
 };
 
 interface Rotation {
-    readonly fakes: FakeStickyContext;
+    readonly fakes: FakeRotationContext;
     readonly oldPost: FakePost;
     readonly replacement: FakePost;
 }
 
-async function rotate(config: Config, subredditName?: string): Promise<Rotation> {
+async function rotate(config: ThreadConfig, subredditName?: string): Promise<Rotation> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    const fakes = createFakeStickyContext(subredditName);
+    const fakes = createFakeRotationContext(subredditName);
     const oldPost = createFakePost({
         body: "Old body",
         createdAt: new Date("2026-04-20T10:00:00Z"),
@@ -44,11 +44,11 @@ async function rotate(config: Config, subredditName?: string): Promise<Rotation>
     });
     fakes.reddit.submitPost.mockResolvedValue(replacement.post);
 
-    await createPost(oldPost.post, config, fakes.context);
+    await rotateLivePost(oldPost.post, config, fakes.context);
     return { fakes, oldPost, replacement };
 }
 
-describe(createPost, (): void => {
+describe(rotateLivePost, (): void => {
     it(
         "retires the old post: unstickies it, adds the end note as a distinguished sticky comment and locks it",
         TEST_OPTIONS,
@@ -83,18 +83,22 @@ describe(createPost, (): void => {
         },
     );
 
-    it("tracks the replacement and stores its comment cap for 28 days", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "records the replacement as the live post and stores its comment cap for 28 days",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
 
-        const { fakes } = await rotate(ROTATING_CONFIG, "ukpolitics");
+            const { fakes } = await rotate(ROTATING_CONFIG, "ukpolitics");
 
-        expect(fakes.redis.hSet).toHaveBeenCalledExactlyOnceWith("StickyPostStore", {
-            "daily-thread": "t3_replacement",
-        });
-        expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_replacement", "200", {
-            expiration: new Date("2026-05-19T10:00:00.000Z"),
-        });
-    });
+            expect(fakes.redis.hSet).toHaveBeenCalledExactlyOnceWith("StickyPostStore", {
+                "daily-thread": "t3_replacement",
+            });
+            expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_replacement", "200", {
+                expiration: new Date("2026-05-19T10:00:00.000Z"),
+            });
+        },
+    );
 
     it(
         "leaves the old post open and the replacement unstickied when those keys were left empty",

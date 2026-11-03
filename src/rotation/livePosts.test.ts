@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createFakeStickyContext } from "../tests/support/fakeStickyContext.js";
-import { getCommentCap } from "./trackedPosts.js";
+import { createFakeRotationContext } from "../../tests/support/fakeRotationContext.js";
+import { getCommentCap } from "./livePosts.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -9,7 +9,7 @@ describe(getCommentCap, (): void => {
     it("returns undefined when no cap is stored for the post", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
 
-        const fakes = createFakeStickyContext();
+        const fakes = createFakeRotationContext();
 
         await expect(getCommentCap("t3_alpha", fakes.context)).resolves.toBeUndefined();
         expect(fakes.redis.get).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_alpha");
@@ -18,7 +18,7 @@ describe(getCommentCap, (): void => {
     it("returns the stored cap", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const fakes = createFakeStickyContext();
+        const fakes = createFakeRotationContext();
         fakes.redis.get.mockResolvedValue("150");
 
         await expect(getCommentCap("t3_alpha", fakes.context)).resolves.toBe(150);
@@ -27,7 +27,7 @@ describe(getCommentCap, (): void => {
     it("throws when the stored cap is not a number", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const fakes = createFakeStickyContext();
+        const fakes = createFakeRotationContext();
         fakes.redis.get.mockResolvedValue('"150"');
 
         await expect(getCommentCap("t3_alpha", fakes.context)).rejects.toThrow(
