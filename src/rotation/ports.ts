@@ -43,6 +43,18 @@ export interface LivePosts {
     /** The post's comment cap, or undefined when none is stored for it. */
     readonly getCommentCap: (postId: string) => Promise<number | undefined>;
     readonly storeCommentCap: (postId: string, commentCap: number) => Promise<void>;
+    /** Forgets a post's comment cap, as when it is retired. */
+    readonly forgetCommentCap: (postId: string) => Promise<void>;
+}
+
+/**
+ * One refresh at a time per thread config. Triggers and jobs run concurrently: without the lock, two comments that
+ * reach a comment cap together would each rotate the thread and publish a replacement.
+ */
+export interface ThreadLocks {
+    /** True for the caller that now holds the thread config's lock; false while another caller holds it. */
+    readonly tryLock: (configName: string) => Promise<boolean>;
+    readonly unlock: (configName: string) => Promise<void>;
 }
 
 /** Pending refreshes, and the hourly refresh check. */
@@ -90,4 +102,5 @@ export interface RotationPorts {
     readonly refreshJobs: RefreshJobs;
     readonly refreshStatus: RefreshStatusStore;
     readonly threadConfigs: LoadThreadConfigs;
+    readonly threadLocks: ThreadLocks;
 }

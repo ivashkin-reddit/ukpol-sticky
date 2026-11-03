@@ -34,15 +34,17 @@ export const DISABLED_CONFIG: ThreadConfig = {
 
 export const PUBLISH_ERROR = new Error("Reddit is down");
 
-/** The moderator alert a refresh failing with PUBLISH_ERROR sends. */
-export const FAILURE_ALERT = {
-    subject: "Sticky Manager could not refresh its threads",
-    bodyMarkdown: [
-        "A refresh of the managed threads failed. A thread that was rotating may have lost its live post: the old one unstickied and locked, with no replacement yet.",
-        "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
-        "Details: Reddit is down",
-    ].join("\n\n"),
-};
+/** The moderator alert a refresh failure sends, with the failure's `details`. */
+export function failureAlert(details: string): Readonly<{ subject: string; bodyMarkdown: string }> {
+    return {
+        subject: "Sticky Manager could not refresh its threads",
+        bodyMarkdown: [
+            "A refresh of the managed threads failed, so a thread may need checking. A rotation that stopped part-way can leave the old post unstickied and not yet replaced, or the new post not yet stickied and the old one not yet locked.",
+            "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
+            `Details: ${details}`,
+        ].join("\n\n"),
+    };
+}
 
 /** A post just published, with no comments. */
 export function newPost(id: string): FakePost {

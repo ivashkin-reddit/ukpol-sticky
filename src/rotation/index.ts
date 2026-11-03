@@ -12,6 +12,7 @@ export type {
     RefreshStatus,
     RefreshStatusStore,
     RotationPorts,
+    ThreadLocks,
 } from "./ports.js";
 export {
     ensureRefreshPending,

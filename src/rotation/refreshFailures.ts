@@ -20,7 +20,7 @@ async function alertModerators(ports: FailureAlertPorts, error: unknown): Promis
         await ports.notifyModerators({
             subject: "Sticky Manager could not refresh its threads",
             bodyMarkdown: [
-                "A refresh of the managed threads failed. A thread that was rotating may have lost its live post: the old one unstickied and locked, with no replacement yet.",
+                "A refresh of the managed threads failed, so a thread may need checking. A rotation that stopped part-way can leave the old post unstickied and not yet replaced, or the new post not yet stickied and the old one not yet locked.",
                 "Sticky Manager tries again within the hour, and sends no further alert until a refresh succeeds.",
                 `Details: ${reason}`,
             ].join("\n\n"),

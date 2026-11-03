@@ -92,4 +92,13 @@ describe("redisLivePosts().getCommentCap", (): void => {
             new TypeError('Comment cap for post t3_alpha is not a number: "150"'),
         );
     });
+
+    it("forgets a retired post's comment cap", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+        await redisLivePosts(redis).forgetCommentCap("t3_alpha");
+
+        expect(redis.del).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_alpha");
+    });
 });

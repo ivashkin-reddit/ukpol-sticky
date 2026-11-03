@@ -3,7 +3,7 @@ import { freezeTime } from "../../tests/support/fakeClock.js";
 import { createFakePost, createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { FakePost, FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { rotateLivePost } from "./rotation.js";
+import { rotateLivePost } from "./threadRefresh.js";
 
 const TEST_OPTIONS = { timeout: 1000 };
 
@@ -116,4 +116,19 @@ describe(rotateLivePost, (): void => {
 
         expect(oldPost.addComment).not.toHaveBeenCalled();
     });
+
+    it(
+        "retires the old post only once its replacement is published and recorded, forgetting its comment cap",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(4);
+
+            const { fakes, oldPost } = await rotate(ROTATING_CONFIG);
+
+            expect(oldPost.unsticky).toHaveBeenCalledBefore(fakes.posts.publish);
+            expect(fakes.livePosts.set).toHaveBeenCalledBefore(oldPost.addComment);
+            expect(oldPost.addComment).toHaveBeenCalledBefore(oldPost.lock);
+            expect(fakes.livePosts.forgetCommentCap).toHaveBeenCalledExactlyOnceWith("t3_old");
+        },
+    );
 });

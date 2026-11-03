@@ -4,13 +4,14 @@ import { freezeTime } from "../../tests/support/fakeClock.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import {
     DISABLED_CONFIG,
-    FAILURE_ALERT,
+    failureAlert,
     fullPost,
     LOOSE_CONFIG,
     newPost,
     PUBLISH_ERROR,
     STICKY_CONFIG,
 } from "../../tests/support/rotationFixtures.js";
+import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { UnreadableConfigError } from "../configuration/index.js";
 import type { ManagedPost } from "./ports.js";
 import { refreshAllThreads } from "./rotation.js";
@@ -34,7 +35,8 @@ describe(refreshAllThreads, (): void => {
             await refreshAllThreads(fakes.ports);
 
             expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha", "beta"], ["t3_alpha", "t3_beta"]);
-            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            expect(logSpy).toHaveBeenNthCalledWith(
+                1,
                 "No thread configs are in force, so every live post is forgotten.",
             );
         },
@@ -61,11 +63,17 @@ describe(refreshAllThreads, (): void => {
     it("alerts moderators when a refresh fails, and passes the failure on", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(3);
 
+        silenceConsole("error");
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
         const fakes = createFakeRotationPorts([STICKY_CONFIG]);
         fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
 
-        await expect(refreshAllThreads(fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
+        await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(
+            new Error("Could not refresh thread config sticky-thread: Reddit is down"),
+        );
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(
+            failureAlert("Could not refresh thread config sticky-thread: Reddit is down"),
+        );
         expect(fakes.refreshFailureAlert.release).not.toHaveBeenCalled();
     });
 
@@ -191,8 +199,73 @@ describe(refreshAllThreads, (): void => {
 
         await refreshAllThreads(fakes.ports);
 
-        expect(logSpy).toHaveBeenLastCalledWith(
-            "Refresh complete for 2 thread configs: 0 rotated, 1 published, 0 updated, 1 unchanged.",
-        );
+        expect(logSpy).toHaveBeenLastCalledWith("Refresh finished for 2 thread configs: 1 published, 1 unchanged.");
     });
+
+    it(
+        "keeps refreshing the other thread configs when one fails, schedules a retry, then reports the failure",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(4);
+
+            freezeTime("2026-04-21T10:00:00Z");
+            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+            const errorSpy = silenceConsole("error");
+            const fakes = createFakeRotationPorts([STICKY_CONFIG, LOOSE_CONFIG]);
+            const postGone = new Error("post t3_gone not found");
+            fakes.livePosts.get.mockImplementation(
+                async (configName: string): Promise<string | undefined> =>
+                    await Promise.resolve(configName === "sticky-thread" ? "t3_gone" : undefined),
+            );
+            fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_gone", "loose-thread": "t3_loose" });
+            fakes.posts.get.mockRejectedValue(postGone);
+            fakes.posts.publish.mockResolvedValue(newPost("t3_loose").post);
+
+            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(
+                new Error("Could not refresh thread config sticky-thread: post t3_gone not found"),
+            );
+            expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({ title: "Loose thread", body: "Loose body" });
+            // Neither fixture thread config has a schedule, so the retry is the next refresh.
+            expect(fakes.refreshJobs.scheduleAt).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:15:05.000Z"));
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+                "Could not refresh thread config sticky-thread:",
+                postGone,
+            );
+        },
+    );
+
+    it(
+        "records that no refresh is scheduled when no thread config is in force",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+            const fakes = createFakeRotationPorts([]);
+
+            await refreshAllThreads(fakes.ports);
+
+            expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith(undefined);
+        },
+    );
+
+    it(
+        "keeps the live post of a thread config added while it ran, reading the thread configs again",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+            const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
+            fakes.livePosts.get.mockResolvedValue("t3_loose");
+            fakes.posts.get.mockResolvedValue({ ...fullPost("t3_loose", 5).post, body: "Loose body" });
+            // Another invocation published the sticky thread config's live post after this refresh read the configs.
+            fakes.livePosts.configNames.mockResolvedValue(["loose-thread", "sticky-thread"]);
+            fakes.threadConfigs.mockResolvedValueOnce([LOOSE_CONFIG]).mockResolvedValue([LOOSE_CONFIG, STICKY_CONFIG]);
+
+            await refreshAllThreads(fakes.ports);
+
+            expect(fakes.livePosts.forget).not.toHaveBeenCalled();
+        },
+    );
 });

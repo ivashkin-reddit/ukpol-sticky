@@ -38,6 +38,23 @@ const ROTATION_CASES: readonly RotationCase[] = [
         postedAt: "2026-04-21T05:00:00Z",
         rotatesAt: "2026-04-21T12:30:00.000Z",
     },
+    // Posted less than six hours before its next post time, across UTC midnight, so it runs until the one after.
+    {
+        schedule: { kind: "daily", hours: 0, minutes: 0 },
+        postedAt: "2023-02-01T23:59:00Z",
+        rotatesAt: "2023-02-03T00:00:00.000Z",
+    },
+    {
+        schedule: { kind: "daily", hours: 2, minutes: 0 },
+        postedAt: "2023-02-01T23:00:00Z",
+        rotatesAt: "2023-02-03T02:00:00.000Z",
+    },
+    // Posted the evening before, more than six hours ahead of the next post time.
+    {
+        schedule: { kind: "daily", hours: 6, minutes: 0 },
+        postedAt: "2023-02-01T20:00:00Z",
+        rotatesAt: "2023-02-02T06:00:00.000Z",
+    },
     // Posted less than six hours before today's post time, so it runs until tomorrow's.
     {
         schedule: { kind: "daily", hours: 14, minutes: 0 },
@@ -72,6 +89,38 @@ describe(getRotationTime, (): void => {
             expect(getRotationTime(new Date(rotationCase.postedAt), rotationCase.schedule).toISOString()).toBe(
                 rotationCase.rotatesAt,
             );
+        },
+    );
+});
+
+describe("getRotationTime for daily schedules", (): void => {
+    it(
+        "always rotates at the post time, at least six hours and less than thirty hours after creation",
+        TEST_OPTIONS,
+        (): void => {
+            expect.assertions(1);
+
+            const violations: string[] = [];
+            const startOfSweep = Date.parse("2026-03-28T00:00:00Z");
+            // Every quarter-hour post time, against creation times 47 minutes apart across three days.
+            for (let quarter = 0; quarter < 96; quarter += 1) {
+                const schedule: Schedule = {
+                    kind: "daily",
+                    hours: Math.floor(quarter / 4),
+                    minutes: (quarter % 4) * 15,
+                };
+                for (let created = startOfSweep; created < startOfSweep + 3 * 86_400_000; created += 47 * 60_000) {
+                    const rotation = getRotationTime(new Date(created), schedule);
+                    const hoursLater = (rotation.getTime() - created) / 3_600_000;
+                    const atPostTime =
+                        rotation.getUTCHours() === schedule.hours && rotation.getUTCMinutes() === schedule.minutes;
+                    if (!atPostTime || hoursLater < 6 || hoursLater >= 30) {
+                        violations.push(`${new Date(created).toISOString()} -> ${rotation.toISOString()}`);
+                    }
+                }
+            }
+
+            expect(violations).toStrictEqual([]);
         },
     );
 });

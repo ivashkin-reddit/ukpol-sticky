@@ -1,9 +1,10 @@
-import { getSchedule, renderTitle } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { isDueForRotation, refreshOrder } from "./domain/rotationRules.js";
-import type { LivePosts, ManagedPost, RotationPorts } from "./ports.js";
+import { refreshOrder } from "./domain/rotationRules.js";
+import type { LivePosts, RotationPorts } from "./ports.js";
 import { alertingOnFailure, describeFailure } from "./refreshFailures.js";
 import { scheduleNextRefresh } from "./refreshSchedule.js";
+import { refreshThread } from "./threadRefresh.js";
+import type { ThreadOutcome } from "./threadRefresh.js";
 
 function findConfigNameOfLivePost(livePostIds: Readonly<Record<string, string>>, postId: string): string | undefined {
     return Object.entries(livePostIds).find(
@@ -25,91 +26,53 @@ async function forgetLivePosts(configNames: readonly string[], livePosts: LivePo
     await livePosts.forget(configNames, postIds);
 }
 
-async function retireLivePost(post: ManagedPost, config: ThreadConfig): Promise<void> {
-    if (post.stickied) {
-        await post.unsticky();
-    }
+type ThreadResult =
+    | Readonly<{ configName: string; outcome: "failed"; error: unknown }>
+    | Readonly<{ configName: string; outcome: ThreadOutcome }>;
 
-    if (config.endNote != null && config.endNote !== "") {
-        const comment = await post.addComment({ text: config.endNote });
-        await comment.distinguish(true);
-    }
+type ThreadFailure = Extract<ThreadResult, Readonly<{ outcome: "failed" }>>;
 
-    if (config.lockOnRefresh === true) {
-        await post.lock();
-    }
+function isFailure(result: ThreadResult): result is ThreadFailure {
+    return result.outcome === "failed";
 }
 
-/** Publishes a new live post for the thread config, retiring the previous live post first if there is one. */
-export async function rotateLivePost(
-    previousPost: ManagedPost | undefined,
-    config: ThreadConfig,
-    ports: Pick<RotationPorts, "livePosts" | "posts">,
-): Promise<void> {
-    if (previousPost !== undefined) {
-        console.log(`Rotating thread config ${config.name}: retiring live post ${previousPost.id}.`);
-        await retireLivePost(previousPost, config);
+/** Refreshes one thread config; a failure is logged and returned, so it cannot stop the others. */
+async function refreshIsolated(config: ThreadConfig, ports: RotationPorts): Promise<ThreadResult> {
+    try {
+        return { configName: config.name, outcome: await refreshThread(config, ports) };
+    } catch (error: unknown) {
+        console.error(`Could not refresh thread config ${config.name}:`, error);
+        return { configName: config.name, outcome: "failed", error };
     }
-
-    const newPost = await ports.posts.publish({ title: renderTitle(config.title, new Date()), body: config.body });
-    await newPost.distinguish();
-    if (config.sticky === true) {
-        await newPost.sticky();
-    }
-
-    await ports.livePosts.set(config.name, newPost.id);
-    await ports.livePosts.storeCommentCap(newPost.id, config.maxComments);
-    console.log(`Published live post ${newPost.id} for thread config ${config.name}.`);
-}
-
-/** What a refresh did for one thread config. */
-type ThreadOutcome = "published" | "rotated" | "unchanged" | "updated";
-
-/** Rotates a live post that is due; otherwise brings its body up to date and renews its comment cap. */
-async function refreshLivePost(post: ManagedPost, config: ThreadConfig, ports: RotationPorts): Promise<ThreadOutcome> {
-    const rotatesOn = { schedule: getSchedule(config), commentCap: config.maxComments };
-    if (isDueForRotation(post, rotatesOn, Date.now())) {
-        await rotateLivePost(post, config, ports);
-        return "rotated";
-    }
-
-    const bodyChanged = post.body?.trim() !== config.body.trim();
-    if (bodyChanged) {
-        console.log(`Updating the body of live post ${post.id} for thread config ${config.name}.`);
-        await post.edit({ text: config.body });
-    }
-
-    await ports.livePosts.storeCommentCap(post.id, config.maxComments);
-    return bodyChanged ? "updated" : "unchanged";
-}
-
-async function refreshThread(config: ThreadConfig, ports: RotationPorts): Promise<ThreadOutcome> {
-    const postId = await ports.livePosts.get(config.name);
-    if (postId === undefined) {
-        await rotateLivePost(undefined, config, ports);
-        return "published";
-    }
-
-    return await refreshLivePost(await ports.posts.get(postId), config, ports);
 }
 
 // Sticky posts take Reddit's sticky slots in the order they are stickied, and each rotation unstickies the old live
 // post before stickying its replacement, so thread configs refresh one at a time, in order.
-async function refreshInOrder(configs: readonly ThreadConfig[], ports: RotationPorts): Promise<ThreadOutcome[]> {
+async function refreshInOrder(configs: readonly ThreadConfig[], ports: RotationPorts): Promise<ThreadResult[]> {
     const [first, ...rest] = configs;
     if (first === undefined) {
         return [];
     }
 
-    const outcome = await refreshThread(first, ports);
-    return [outcome, ...(await refreshInOrder(rest, ports))];
+    const result = await refreshIsolated(first, ports);
+    return [result, ...(await refreshInOrder(rest, ports))];
 }
 
-function describeOutcomes(outcomes: readonly ThreadOutcome[]): string {
-    const counts = (["rotated", "published", "updated", "unchanged"] as const).map(
-        (kind): string => `${String(outcomes.filter((outcome): boolean => outcome === kind).length)} ${kind}`,
+function describeResults(results: readonly ThreadResult[]): string {
+    const counts = (["rotated", "published", "updated", "unchanged", "skipped", "failed"] as const).flatMap(
+        (kind): string[] => {
+            const count = results.filter((result): boolean => result.outcome === kind).length;
+            return count === 0 ? [] : [`${String(count)} ${kind}`];
+        },
     );
-    return `${String(outcomes.length)} thread configs: ${counts.join(", ")}`;
+    const total = `${String(results.length)} thread configs`;
+    return counts.length === 0 ? total : `${total}: ${counts.join(", ")}`;
+}
+
+function describeFailures(failures: readonly ThreadFailure[]): Error {
+    const details = failures.map((failure): string => `${failure.configName}: ${describeFailure(failure.error)}`);
+    const subject = failures.length === 1 ? "thread config" : "thread configs";
+    return new Error(`Could not refresh ${subject} ${details.join("; ")}`, { cause: failures[0]?.error });
 }
 
 async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], livePosts: LivePosts): Promise<void> {
@@ -125,25 +88,39 @@ async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], live
     }
 }
 
+/** Schedules the next refresh (retrying failed thread configs), forgets removed ones, then reports any failure. */
+async function finishRefresh(results: readonly ThreadResult[], ports: RotationPorts): Promise<void> {
+    const failures = results.filter(isFailure);
+    await scheduleNextRefresh(
+        ports,
+        failures.map((failure): string => failure.configName),
+    );
+    // Read again, not taken from the start of the refresh: a thread config added meanwhile may have a live post that
+    // another invocation published, which a stale list would forget.
+    await forgetRemovedThreads(refreshOrder(await ports.threadConfigs()), ports.livePosts);
+    console.log(`Refresh finished for ${describeResults(results)}.`);
+    if (failures.length > 0) {
+        throw describeFailures(failures);
+    }
+}
+
 async function refreshEveryThread(ports: RotationPorts): Promise<void> {
     const configs = await ports.threadConfigs();
     if (configs.length === 0) {
         console.log("No thread configs are in force, so every live post is forgotten.");
         await forgetLivePosts(Object.keys(await ports.livePosts.all()), ports.livePosts);
+        await scheduleNextRefresh(ports);
         return;
     }
 
-    const activeConfigs = refreshOrder(configs);
-    const outcomes = await refreshInOrder(activeConfigs, ports);
-    await scheduleNextRefresh(ports);
-    await forgetRemovedThreads(activeConfigs, ports.livePosts);
-    console.log(`Refresh complete for ${describeOutcomes(outcomes)}.`);
+    await finishRefresh(await refreshInOrder(refreshOrder(configs), ports), ports);
 }
 
 /**
  * One refresh: every enabled thread config's live post is published, rotated or brought up to date, live posts of
- * removed or disabled thread configs are forgotten, and the next refresh is scheduled. Its outcome is recorded in the
- * refresh status. A failure alerts moderators; a success lets the next failure alert them again.
+ * removed or disabled thread configs are forgotten, and the next refresh is scheduled. A thread config that fails
+ * does not stop the others; it is retried by an earlier next refresh. The outcome is recorded in the refresh status.
+ * A failure alerts moderators; a full success lets the next failure alert them again.
  */
 export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
     const startedAt = new Date();
@@ -160,19 +137,33 @@ export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
     await ports.refreshFailureAlert.release();
 }
 
+/** Refreshes one thread config, then schedules the next refresh: a retry soon if the refresh failed. */
+async function refreshThenReschedule(config: ThreadConfig, ports: RotationPorts): Promise<void> {
+    try {
+        await refreshThread(config, ports);
+    } catch (error: unknown) {
+        // Nothing else retries this rotation soon: the old post may be locked, and a pending refresh may be days off.
+        await scheduleNextRefresh(ports, [config.name]);
+        throw error;
+    }
+
+    await scheduleNextRefresh(ports);
+}
+
 async function refreshThreadOfLivePost(postId: string, ports: RotationPorts): Promise<void> {
     const configName = findConfigNameOfLivePost(await ports.livePosts.all(), postId);
     if (configName === undefined) {
         return;
     }
 
-    const config = (await ports.threadConfigs()).find((candidate): boolean => candidate.name === configName);
+    const config = (await ports.threadConfigs()).find(
+        (candidate): boolean => candidate.name === configName && candidate.enabled,
+    );
     if (config === undefined) {
         return;
     }
 
-    await refreshThread(config, ports);
-    await scheduleNextRefresh(ports);
+    await refreshThenReschedule(config, ports);
 }
 
 /** After a comment on `postId`: if it is a live post that has reached its comment cap, its thread is rotated now. */

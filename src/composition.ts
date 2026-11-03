@@ -14,6 +14,8 @@ import { redisLivePosts } from "./rotation/adapters/redisLivePosts.js";
 import type { LivePostsRedis } from "./rotation/adapters/redisLivePosts.js";
 import { redisRefreshStatus } from "./rotation/adapters/redisRefreshStatus.js";
 import type { RefreshStatusRedis } from "./rotation/adapters/redisRefreshStatus.js";
+import { redisThreadLocks } from "./rotation/adapters/redisThreadLocks.js";
+import type { ThreadLocksRedis } from "./rotation/adapters/redisThreadLocks.js";
 import { schedulerRefreshJobs } from "./rotation/adapters/schedulerRefreshJobs.js";
 import type { RefreshScheduler } from "./rotation/adapters/schedulerRefreshJobs.js";
 import type { RotationPorts } from "./rotation/index.js";
@@ -31,7 +33,7 @@ export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 
 export type RotationContext = ConfigReadContext &
     RedditPostsContext &
-    Readonly<{ redis: LivePostsRedis & RefreshStatusRedis; scheduler: RefreshScheduler }>;
+    Readonly<{ redis: LivePostsRedis & RefreshStatusRedis & ThreadLocksRedis; scheduler: RefreshScheduler }>;
 
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {
@@ -55,5 +57,6 @@ export function rotationPorts(context: RotationContext): RotationPorts {
         refreshJobs: schedulerRefreshJobs(context.scheduler),
         refreshStatus: redisRefreshStatus(context.redis),
         threadConfigs: async (): Promise<readonly ThreadConfig[]> => await getThreadConfigs(configRead),
+        threadLocks: redisThreadLocks(context.redis),
     };
 }

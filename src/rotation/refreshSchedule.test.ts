@@ -152,6 +152,53 @@ describe("scheduleNextRefresh and the refresh status", (): void => {
     );
 });
 
+describe("scheduleNextRefresh after thread configs failed", (): void => {
+    it(
+        "leaves their rotation times out and retries them fifteen minutes on, if that is sooner",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            freezeTime("2026-04-21T13:00:00Z");
+            silenceConsole("log");
+            // The live post was due at 12:30, so without the retry the next refresh would be due now.
+            const fakes = createFakeRotationPorts([
+                {
+                    name: "daily-thread",
+                    enabled: true,
+                    title: "Daily",
+                    frequency: "daily",
+                    postTime: "12:30",
+                    maxComments: 100,
+                    body: "Body",
+                },
+            ]);
+            fakes.livePosts.all.mockResolvedValue({ "daily-thread": "t3_daily" });
+
+            await scheduleNextRefresh(fakes.ports, ["daily-thread"]);
+
+            expect(fakes.refreshJobs.scheduleAt).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T13:15:05.000Z"));
+        },
+    );
+});
+
+describe("scheduleNextRefresh for a thread config without a live post", (): void => {
+    it("schedules a refresh straight away to publish one", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeTime("2026-04-21T10:00:00Z");
+        silenceConsole("log");
+        // Saved while a refresh ran, say, so that refresh published nothing for it.
+        const fakes = createFakeRotationPorts([
+            { name: "new-thread", enabled: true, title: "New", maxComments: 100, body: "Body" },
+        ]);
+
+        await scheduleNextRefresh(fakes.ports);
+
+        expect(fakes.refreshJobs.scheduleAt).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:00:05.000Z"));
+    });
+});
+
 describe(getRefreshStatus, (): void => {
     it("reads the recorded refresh status", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);

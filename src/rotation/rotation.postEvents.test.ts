@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { freezeTime } from "../../tests/support/fakeClock.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
-import {
-    FAILURE_ALERT,
-    fullPost,
-    newPost,
-    PUBLISH_ERROR,
-    STICKY_CONFIG,
-} from "../../tests/support/rotationFixtures.js";
+import { failureAlert, fullPost, newPost, PUBLISH_ERROR, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
 import { forgetDeletedPost, rotateIfCapReached } from "./rotation.js";
 
 // Rotation's response to events on posts: a comment that may reach a live post's comment cap, and a deleted post.
@@ -70,7 +65,39 @@ describe(rotateIfCapReached, (): void => {
         fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
 
         await expect(rotateIfCapReached("t3_full", fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(failureAlert("Reddit is down"));
+    });
+});
+
+describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
+    it("leaves a disabled thread config's live post alone", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([{ ...STICKY_CONFIG, enabled: false }]);
+        fakes.livePosts.getCommentCap.mockResolvedValue(100);
+        fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
+        fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
+
+        await rotateIfCapReached("t3_full", fakes.ports);
+
+        expect(fakes.posts.publish).not.toHaveBeenCalled();
+    });
+
+    it("schedules a retry fifteen minutes on when the rotation fails", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        freezeTime("2026-04-21T10:00:00Z");
+        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        fakes.livePosts.getCommentCap.mockResolvedValue(100);
+        fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
+        fakes.livePosts.get.mockResolvedValue("t3_full");
+        fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
+        fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
+
+        await expect(rotateIfCapReached("t3_full", fakes.ports)).rejects.toBe(PUBLISH_ERROR);
+        expect(fakes.refreshJobs.scheduleAt).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:15:05.000Z"));
     });
 });
 

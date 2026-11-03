@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
-import { FAILURE_ALERT, PUBLISH_ERROR } from "../../tests/support/rotationFixtures.js";
+import { failureAlert, PUBLISH_ERROR } from "../../tests/support/rotationFixtures.js";
 import { UnreadableConfigError } from "../configuration/index.js";
 import { alertingOnFailure } from "./refreshFailures.js";
 
@@ -28,7 +28,7 @@ describe(alertingOnFailure, (): void => {
         const fakes = createFakeRotationPorts();
 
         await expect(alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR))).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(FAILURE_ALERT);
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(failureAlert("Reddit is down"));
     });
 
     it("sends nothing while an earlier alert's claim stands", TEST_OPTIONS, async (): Promise<void> => {

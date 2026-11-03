@@ -56,5 +56,8 @@ export function redisLivePosts(redis: LivePostsRedis): LivePosts {
                 expiration: addDays(new Date(), COMMENT_CAP_TTL_DAYS),
             });
         },
+        forgetCommentCap: async (postId: string): Promise<void> => {
+            await redis.del(getCommentCapKey(postId));
+        },
     };
 }

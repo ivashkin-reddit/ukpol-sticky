@@ -1,7 +1,8 @@
 import { addHours } from "date-fns";
 import type { Schedule, ThreadConfig } from "../../configuration/index.js";
 
-// A daily live post created less than this many hours before today's post time runs until tomorrow's.
+// A daily live post runs until the first post time at least this many hours after it was created, so one created
+// shortly before its post time (by a comment-cap rotation, say) is not rotated again almost at once.
 const MIN_HOURS_BEFORE_DAILY_ROTATION = 6;
 const DAYS_PER_WEEK = 7;
 
@@ -19,10 +20,10 @@ export function getRotationTime(postDate: Date, schedule: Schedule): Date {
         );
 
     if (schedule.kind === "daily") {
-        const sameDay = atPostTime(0);
-        return sameDay.getTime() < addHours(postDate, MIN_HOURS_BEFORE_DAILY_ROTATION).getTime()
-            ? atPostTime(1)
-            : sameDay;
+        // Counted from the next post time after creation, which may fall on the next UTC day.
+        const nextDay = atPostTime(0).getTime() > postDate.getTime() ? 0 : 1;
+        const tooSoon = atPostTime(nextDay).getTime() < addHours(postDate, MIN_HOURS_BEFORE_DAILY_ROTATION).getTime();
+        return atPostTime(tooSoon ? nextDay + 1 : nextDay);
     }
 
     const daysUntil = (schedule.weekday - postDate.getUTCDay() + DAYS_PER_WEEK) % DAYS_PER_WEEK;
