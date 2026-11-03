@@ -56,12 +56,12 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
     {
         rule: "application code does not import Devvit",
         file: "src/rotation/rotation.ts",
-        source: 'export type { RedisClient } from "@devvit/public-api";',
+        source: 'export type { RedisClient } from "@devvit/web/server";',
     },
     {
         rule: "domain code does not import Devvit",
         file: "src/rotation/domain/rotationRules.ts",
-        source: 'export type { RedisClient } from "@devvit/public-api";',
+        source: 'export type { RedisClient } from "@devvit/web/server";',
     },
     {
         rule: "domain code does not import its module's application code",
@@ -124,6 +124,16 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
         source: 'export * from "./rotation.test.js";',
     },
     {
+        rule: "modules do not import the server",
+        file: "src/rotation/rotation.ts",
+        source: 'export { isJsonObject } from "../server/requestBodies.js";',
+    },
+    {
+        rule: "the server imports modules only through index.ts",
+        file: "src/server/requestBodies.ts",
+        source: 'export { refreshAllThreads } from "../rotation/rotation.js";',
+    },
+    {
         rule: "tests reach other modules only through their interfaces and adapters",
         file: "tests/support/defer.ts",
         source: 'export { storeThreadConfigs } from "../../src/configuration/storedConfigs.js";',
@@ -155,6 +165,16 @@ const ALLOWED_IMPORTS: readonly ImportCase[] = [
         rule: "the composition root builds adapters",
         file: "src/composition.ts",
         source: 'export { redisLivePosts } from "./rotation/adapters/redisLivePosts.js";',
+    },
+    {
+        rule: "the server imports the trigger handlers' event types",
+        file: "src/server/requestBodies.ts",
+        source: 'export type { ModActionEvent } from "../triggers.js";',
+    },
+    {
+        rule: "the server imports Devvit",
+        file: "src/server/requestBodies.ts",
+        source: 'export type { OnModActionRequest } from "@devvit/web/shared";',
     },
     {
         rule: "a test imports test support",

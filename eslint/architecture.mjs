@@ -16,9 +16,12 @@ const ELEMENTS = [
     // Each module's pure rules, its adapters, and the rest of it: application code, ports and its index.ts.
     { type: "domain", pattern: "src/*/domain", capture: ["module"], partialMatch: false },
     { type: "adapters", pattern: "src/*/adapters", capture: ["module"], partialMatch: false },
+    // Devvit Web's HTTP server (src/server): the routes Devvit calls for triggers and scheduled tasks. Part of the edge;
+    // listed before "src/*" so it is not taken for a module.
+    { type: "edge", pattern: "src/server", partialMatch: false },
     { type: "module", pattern: "src/*", capture: ["module"], partialMatch: false },
-    // The files directly under src: main.ts, the trigger handlers, and composition.ts, the only code that builds
-    // adapters.
+    // The files directly under src: main.ts, the trigger handlers, observed.ts, and composition.ts, the only code that
+    // builds adapters. With src/server they are the edge.
     { type: "edge", pattern: "src", partialMatch: false },
     { type: "tests", pattern: "tests", partialMatch: false },
 ];
