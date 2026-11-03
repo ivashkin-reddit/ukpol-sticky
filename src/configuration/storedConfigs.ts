@@ -34,6 +34,16 @@ async function alertModeratorsOnce(ports: ConfigReadPorts, reason: string): Prom
             cause: sendError,
         });
     }
+
+    try {
+        await ports.unreadableAlert.confirm();
+    } catch (confirmError: unknown) {
+        // The claim lapses on its own; releasing it now would send a second alert at the next read.
+        throw new Error(
+            `Moderators were alerted that the stored config cannot be read (${reason}), but the alert could not be recorded as sent`,
+            { cause: confirmError },
+        );
+    }
 }
 
 async function readStoredConfigs(ports: ConfigReadPorts): Promise<readonly ThreadConfig[] | undefined> {

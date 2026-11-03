@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createFakeConfigurationPorts } from "../../tests/support/fakeConfigurationPorts.js";
+import { createFakeConfigurationPorts, VALID_CONFIG_PAGE } from "../../tests/support/fakeConfigurationPorts.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { applyConfigPageRevision } from "./configPageRevision.js";
+import type { ConfigPageRevision } from "./ports.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -112,4 +113,97 @@ describe(applyConfigPageRevision, (): void => {
             expect(logSpy).toHaveBeenCalledExactlyOnceWith("Config page revision rev-2 is already rejected.");
         },
     );
+});
+
+describe("applyConfigPageRevision with saves close together", (): void => {
+    it(
+        "applies a newer revision saved while it stored an older one, so the newest stays in force",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            silenceConsole("log");
+            const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-1" });
+            // The page read first shows rev-2; by the time it is stored, a moderator has saved rev-3.
+            fakes.page.read
+                .mockResolvedValueOnce({ content: VALID_CONFIG_PAGE, revisionId: "rev-2" })
+                .mockResolvedValue({ content: VALID_CONFIG_PAGE, revisionId: "rev-3" });
+
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("stored");
+            expect(fakes.store.writeAcceptedRevision.mock.calls).toStrictEqual([["rev-2"], ["rev-3"]]);
+            expect(fakes.store.writeConfigs).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it(
+        "applies at most three revisions at a time, should moderators keep saving",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            silenceConsole("log");
+            const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-1" });
+            let revision = 1;
+            fakes.page.read.mockImplementation(async (): Promise<ConfigPageRevision> => {
+                revision += 1;
+                return await Promise.resolve({ content: VALID_CONFIG_PAGE, revisionId: `rev-${String(revision)}` });
+            });
+
+            await applyConfigPageRevision("mod_user", fakes.ports);
+
+            expect(fakes.store.writeAcceptedRevision.mock.calls).toStrictEqual([["rev-2"], ["rev-3"], ["rev-4"]]);
+        },
+    );
+});
+
+describe("applyConfigPageRevision rejection alerts", (): void => {
+    it("are addressed to the moderator who saved the revision", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        silenceConsole("warn");
+        const fakes = createFakeConfigurationPorts();
+        fakes.page.read.mockResolvedValue({ content: "name: x", revisionId: "rev-2", authorName: "author_mod" });
+
+        await applyConfigPageRevision("event_mod", fakes.ports);
+
+        expect(
+            fakes.notifyModerators.mock.lastCall?.[0].bodyMarkdown
+                .trimStart()
+                .startsWith("/u/author_mod, the config in wiki page stickymgr/config is invalid."),
+        ).toBe(true);
+    });
+
+    it(
+        "fall back to the moderator the wiki revision event names when the revision names nobody",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            silenceConsole("warn");
+            const fakes = createFakeConfigurationPorts({ pageContent: "name: x" });
+
+            await applyConfigPageRevision("event_mod", fakes.ports);
+
+            expect(
+                fakes.notifyModerators.mock.lastCall?.[0].bodyMarkdown
+                    .trimStart()
+                    .startsWith("/u/event_mod, the config"),
+            ).toBe(true);
+        },
+    );
+
+    it("address moderators at large when nobody's name is known", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        silenceConsole("warn");
+        const fakes = createFakeConfigurationPorts({ pageContent: "name: x" });
+
+        await applyConfigPageRevision(undefined, fakes.ports);
+
+        expect(
+            fakes.notifyModerators.mock.lastCall?.[0].bodyMarkdown
+                .trimStart()
+                .startsWith("Moderators, the config in wiki page stickymgr/config is invalid."),
+        ).toBe(true);
+    });
 });

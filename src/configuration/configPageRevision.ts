@@ -19,11 +19,11 @@ function alert(subject: string, body: readonly MarkdownBlock[]): ModeratorAlert 
 }
 
 /** The alert for a config problem, addressed to the moderator who saved the config page. */
-function describeProblem(problem: ConfigProblem, moderatorName: string): ModeratorAlert {
+function describeProblem(problem: ConfigProblem, addressee: string): ModeratorAlert {
     switch (problem.kind) {
         case "invalidSchema":
             return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
-                { p: `/u/${moderatorName}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
+                { p: `${addressee}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
                 { p: "Errors:" },
                 { blockquote: problem.errors },
                 { p: KEEPING_EXISTING_CONFIG },
@@ -31,26 +31,26 @@ function describeProblem(problem: ConfigProblem, moderatorName: string): Moderat
         case "incompleteSchedule":
             return alert(`Incomplete schedule in config ${problem.configName}`, [
                 {
-                    p: `/u/${moderatorName}, config ${problem.configName} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.`,
+                    p: `${addressee}, config ${problem.configName} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.`,
                 },
             ]);
         case "invalidDateFormat":
             return alert(`Invalid date format in config ${problem.configName}`, [
                 {
-                    p: `/u/${moderatorName}, the date format in config ${problem.configName} is invalid. Please fix it.`,
+                    p: `${addressee}, the date format in config ${problem.configName} is invalid. Please fix it.`,
                 },
                 { p: `The date format \`${problem.dateFormat}\` is not a valid format string.` },
             ]);
         case "duplicateNames":
             return alert(`Duplicate config names in wiki page ${CONFIG_PAGE}`, [
                 {
-                    p: `/u/${moderatorName}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.`,
+                    p: `${addressee}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.`,
                 },
             ]);
         case "invalidValue":
             return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
                 {
-                    p: `/u/${moderatorName}, config "${problem.configName}" is invalid: ${problem.reason}. Please fix it.`,
+                    p: `${addressee}, config "${problem.configName}" is invalid: ${problem.reason}. Please fix it.`,
                 },
                 { p: KEEPING_EXISTING_CONFIG },
             ]);
@@ -78,9 +78,9 @@ interface YamlDocument {
     readonly toJSON: () => unknown;
 }
 
-function describeYamlErrors(parseErrors: readonly string[], moderatorName: string): ModeratorAlert {
+function describeYamlErrors(parseErrors: readonly string[], addressee: string): ModeratorAlert {
     return alert(`Invalid YAML in wiki page ${CONFIG_PAGE}`, [
-        { p: `/u/${moderatorName}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
+        { p: `${addressee}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
         { p: "Errors:" },
         { blockquote: parseErrors.join("\n") },
         { p: KEEPING_EXISTING_CONFIG },
@@ -113,10 +113,10 @@ function documentValues(
 
 type Rejection = Readonly<{ alert: ModeratorAlert; summary: string }>;
 
-function rejectYaml(errors: readonly string[], moderatorName: string): Rejection & Readonly<{ kind: "invalid" }> {
+function rejectYaml(errors: readonly string[], addressee: string): Rejection & Readonly<{ kind: "invalid" }> {
     return {
         kind: "invalid",
-        alert: describeYamlErrors(errors, moderatorName),
+        alert: describeYamlErrors(errors, addressee),
         summary: `invalid YAML: ${errors.map((error): string => error.trim()).join(" | ")}`,
     };
 }
@@ -136,10 +136,10 @@ function parseConfigPage(content: string): Readonly<{ errors: string[] }> | Read
 }
 
 /** Parses the config page's YAML documents and checks the thread configs they define. */
-function checkConfigPage(content: string, moderatorName: string): PageCheck {
+function checkConfigPage(content: string, addressee: string): PageCheck {
     const parsed = parseConfigPage(content);
     if ("errors" in parsed) {
-        return rejectYaml(parsed.errors, moderatorName);
+        return rejectYaml(parsed.errors, addressee);
     }
 
     // Empty documents parse to null; compact drops them before checking.
@@ -147,7 +147,7 @@ function checkConfigPage(content: string, moderatorName: string): PageCheck {
     if (check.kind === "invalid") {
         return {
             kind: "invalid",
-            alert: describeProblem(check.problem, moderatorName),
+            alert: describeProblem(check.problem, addressee),
             summary: summarizeProblem(check.problem),
         };
     }
@@ -202,25 +202,61 @@ async function acceptRevision(
     console.log(`Accepted config page revision ${revision.revisionId}: ${String(configs.length)} thread configs.`);
 }
 
+// Saves close together can be applied out of order, the older one last. Reading the page again after storing a
+// revision finds the newer one, which is applied in turn; at most this many in one go, should moderators keep saving.
+const MAX_REVISIONS_PER_APPLY = 3;
+
 /**
- * Reads the config page after a moderator revised it. A revision not yet accepted is checked: its thread configs are
- * stored, or the moderator is alerted to the first config problem and the previously stored configs stay in force.
+ * Whom an alert about a revision opens with: the moderator who saved it, or the one the wiki revision event names,
+ * or moderators at large when neither is known.
  */
-export async function applyConfigPageRevision(
-    moderatorName: string,
+function addresseeOf(revision: ConfigPageRevision, moderatorName: string | undefined): string {
+    const name = revision.authorName ?? moderatorName;
+    return name === undefined ? "Moderators" : `/u/${name}`;
+}
+
+async function applyRevision(
+    revision: ConfigPageRevision,
+    moderatorName: string | undefined,
     ports: ConfigurationPorts,
+): Promise<"rejected" | "stored"> {
+    const check = checkConfigPage(revision.content, addresseeOf(revision, moderatorName));
+    if (check.kind === "invalid") {
+        await rejectRevision(revision, check, ports);
+        return "rejected";
+    }
+
+    await acceptRevision(revision, check.configs, ports);
+    return "stored";
+}
+
+async function applyNewRevisions(
+    moderatorName: string | undefined,
+    ports: ConfigurationPorts,
+    revisionsLeft: number,
 ): Promise<ConfigPageOutcome> {
     const read = await readNewRevision(ports);
     if (read.kind !== "new") {
         return read.kind;
     }
 
-    const check = checkConfigPage(read.revision.content, moderatorName);
-    if (check.kind === "invalid") {
-        await rejectRevision(read.revision, check, ports);
-        return "rejected";
+    const outcome = await applyRevision(read.revision, moderatorName, ports);
+    if (outcome === "stored" && revisionsLeft > 1) {
+        // Whatever the newer revision brings, the thread configs this one stored need a refresh.
+        await applyNewRevisions(moderatorName, ports, revisionsLeft - 1);
     }
 
-    await acceptRevision(read.revision, check.configs, ports);
-    return "stored";
+    return outcome;
+}
+
+/**
+ * Reads the config page, after a moderator revised it or to catch a revision nothing applied. A revision not yet
+ * accepted or rejected is checked: its thread configs are stored, or moderators are alerted to its first config problem
+ * and the previously stored configs stay in force. `moderatorName` is whom the wiki revision event names, if one did.
+ */
+export async function applyConfigPageRevision(
+    moderatorName: string | undefined,
+    ports: ConfigurationPorts,
+): Promise<ConfigPageOutcome> {
+    return await applyNewRevisions(moderatorName, ports, MAX_REVISIONS_PER_APPLY);
 }

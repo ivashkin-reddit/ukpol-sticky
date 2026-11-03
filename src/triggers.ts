@@ -10,10 +10,11 @@ import {
     scheduleNextRefresh,
     startRefreshCheck,
 } from "./rotation/index.js";
+import type { NewComment } from "./rotation/index.js";
 
 // Each handler adapts one Devvit trigger or scheduled job to a module's use case, with ports from src/composition.ts.
-// Trigger events are protobuf messages, whose string fields default to "", so an empty string means the field is
-// missing.
+// Trigger events are protobuf messages, whose string fields default to "" and number fields to 0, so an empty string or
+// a 0 count means the field is missing.
 
 export type ModActionEvent = Readonly<{
     action?: string | undefined;
@@ -22,7 +23,7 @@ export type ModActionEvent = Readonly<{
 
 export type CommentCreateEvent = Readonly<{
     author?: Readonly<{ name: string }> | undefined;
-    post?: Readonly<{ id: string }> | undefined;
+    post?: Readonly<{ id: string; numComments?: number | undefined }> | undefined;
 }>;
 
 function getRevisingModerator(event: ModActionEvent): string | undefined {
@@ -39,6 +40,19 @@ function getRevisingModerator(event: ModActionEvent): string | undefined {
     return moderatorName;
 }
 
+/**
+ * Applies the config page's current revision if nothing has applied it yet, and requests a refresh if that stored
+ * thread configs. `moderatorName` is whom a wiki revision event names, if one did.
+ */
+async function applyConfigPage(
+    moderatorName: string | undefined,
+    context: ConfigurationContext & RotationContext,
+): Promise<void> {
+    if ((await applyConfigPageRevision(moderatorName, configurationPorts(context))) === "stored") {
+        await requestRefresh(rotationPorts(context));
+    }
+}
+
 /** A wiki page was revised: newly stored thread configs are applied by a refresh shortly afterwards. */
 export async function onModAction(
     event: ModActionEvent,
@@ -49,13 +63,11 @@ export async function onModAction(
         return;
     }
 
-    if ((await applyConfigPageRevision(moderatorName, configurationPorts(context))) === "stored") {
-        await requestRefresh(rotationPorts(context));
-    }
+    await applyConfigPage(moderatorName, context);
 }
 
-/** The commented post's ID, or undefined when the comment cannot count towards a comment cap. */
-function getCountedPostId(event: CommentCreateEvent, appSlug: string): string | undefined {
+/** The new comment, or undefined when it cannot count towards a comment cap. */
+function getCountedComment(event: CommentCreateEvent, appSlug: string): NewComment | undefined {
     const postId = event.post?.id ?? "";
     if (postId === "") {
         console.warn("Ignoring a CommentCreate event without a post ID.");
@@ -63,16 +75,16 @@ function getCountedPostId(event: CommentCreateEvent, appSlug: string): string | 
     }
 
     // The app's own comments (end notes on retiring live posts) never count towards a comment cap.
-    return event.author?.name === appSlug ? undefined : postId;
+    return event.author?.name === appSlug ? undefined : { postId, reportedComments: event.post?.numComments ?? 0 };
 }
 
 export async function onCommentCreate(
     event: CommentCreateEvent,
     context: RotationContext & Readonly<{ appSlug: string }>,
 ): Promise<void> {
-    const postId = getCountedPostId(event, context.appSlug);
-    if (postId !== undefined) {
-        await rotateIfCapReached(postId, rotationPorts(context));
+    const comment = getCountedComment(event, context.appSlug);
+    if (comment !== undefined) {
+        await rotateIfCapReached(comment, rotationPorts(context));
     }
 }
 
@@ -84,6 +96,8 @@ export async function onPostDelete(event: Readonly<{ postId: string }>, context:
 export async function onAppInstall(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
     await startRefreshCheck(rotationPorts(context).refreshJobs);
     await installConfigPage(configurationPorts(context).page);
+    // A reinstall finds the moderators' thread configs on the page: they apply now, not at the next save.
+    await applyConfigPage(undefined, context);
 }
 
 export async function onAppUpgrade(_event: unknown, context: RotationContext): Promise<void> {
@@ -96,6 +110,12 @@ export async function onRefreshJob(_event: unknown, context: RotationContext): P
     await refreshAllThreads(rotationPorts(context));
 }
 
-export async function onRefreshCheck(_event: unknown, context: RotationContext): Promise<void> {
+/**
+ * The hourly check: a refresh is pending and on time, and the config page's current revision has been applied, in case
+ * its wiki revision trigger failed or never came. The refresh comes first, so a config page that cannot be applied
+ * cannot stop it.
+ */
+export async function onRefreshCheck(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
     await ensureRefreshPending(rotationPorts(context));
+    await applyConfigPage(undefined, context);
 }

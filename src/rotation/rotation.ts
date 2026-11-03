@@ -1,8 +1,8 @@
 import type { ThreadConfig } from "../configuration/index.js";
-import { refreshOrder } from "./domain/rotationRules.js";
-import type { LivePosts, RotationPorts } from "./ports.js";
+import { isClearlyBelowCommentCap, refreshOrder } from "./domain/rotationRules.js";
+import type { Handover, LivePosts, RotationPorts } from "./ports.js";
 import { alertingOnFailure, describeFailure } from "./refreshFailures.js";
-import { scheduleNextRefresh } from "./refreshSchedule.js";
+import { keepRefreshCheckRunning, scheduleNextRefresh, scheduleRetry } from "./refreshSchedule.js";
 import { refreshThread } from "./threadRefresh.js";
 import type { ThreadOutcome } from "./threadRefresh.js";
 
@@ -59,7 +59,7 @@ async function refreshInOrder(configs: readonly ThreadConfig[], ports: RotationP
 }
 
 function describeResults(results: readonly ThreadResult[]): string {
-    const counts = (["rotated", "published", "updated", "unchanged", "skipped", "failed"] as const).flatMap(
+    const counts = (["rotated", "published", "resumed", "updated", "unchanged", "skipped", "failed"] as const).flatMap(
         (kind): string[] => {
             const count = results.filter((result): boolean => result.outcome === kind).length;
             return count === 0 ? [] : [`${String(count)} ${kind}`];
@@ -105,10 +105,11 @@ async function finishRefresh(results: readonly ThreadResult[], ports: RotationPo
 }
 
 async function refreshEveryThread(ports: RotationPorts): Promise<void> {
+    await keepRefreshCheckRunning(ports.refreshJobs);
     const configs = await ports.threadConfigs();
     if (configs.length === 0) {
         console.log("No thread configs are in force, so every live post is forgotten.");
-        await forgetLivePosts(Object.keys(await ports.livePosts.all()), ports.livePosts);
+        await forgetLivePosts(await ports.livePosts.configNames(), ports.livePosts);
         await scheduleNextRefresh(ports);
         return;
     }
@@ -129,7 +130,12 @@ export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
             await refreshEveryThread(ports);
         });
     } catch (error: unknown) {
-        await ports.refreshStatus.recordFailure(startedAt, describeFailure(error));
+        // A failure to record it is logged rather than thrown, so the refresh's own failure is the one reported.
+        await ports.refreshStatus
+            .recordFailure(startedAt, describeFailure(error))
+            .catch((statusError: unknown): void => {
+                console.error("Could not record the failed refresh in the refresh status:", statusError);
+            });
         throw error;
     }
 
@@ -137,17 +143,31 @@ export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
     await ports.refreshFailureAlert.release();
 }
 
-/** Refreshes one thread config, then schedules the next refresh: a retry soon if the refresh failed. */
-async function refreshThenReschedule(config: ThreadConfig, ports: RotationPorts): Promise<void> {
+/**
+ * Refreshes one thread config; if that fails, makes sure a retry is pending first. Nothing else retries this rotation
+ * soon: a pending refresh may be days off. A failure to schedule the retry is logged rather than thrown, so the
+ * rotation's own failure is the one reported; the hourly refresh check requests a refresh if none is pending.
+ */
+async function refreshOrScheduleRetry(config: ThreadConfig, ports: RotationPorts): Promise<ThreadOutcome> {
     try {
-        await refreshThread(config, ports);
+        return await refreshThread(config, ports);
     } catch (error: unknown) {
-        // Nothing else retries this rotation soon: the old post may be locked, and a pending refresh may be days off.
-        await scheduleNextRefresh(ports, [config.name]);
+        await scheduleRetry(ports, config.name).catch((scheduleError: unknown): void => {
+            console.error(
+                `Could not schedule a retry of thread config ${config.name}; the hourly refresh check requests a refresh if none is pending:`,
+                scheduleError,
+            );
+        });
         throw error;
     }
+}
 
-    await scheduleNextRefresh(ports);
+/** Refreshes one thread config, then schedules the next refresh: a retry soon if the refresh failed. */
+async function refreshThenReschedule(config: ThreadConfig, ports: RotationPorts): Promise<void> {
+    // A skipped refresh leaves scheduling to the invocation that is refreshing the thread config.
+    if ((await refreshOrScheduleRetry(config, ports)) !== "skipped") {
+        await scheduleNextRefresh(ports);
+    }
 }
 
 async function refreshThreadOfLivePost(postId: string, ports: RotationPorts): Promise<void> {
@@ -166,10 +186,22 @@ async function refreshThreadOfLivePost(postId: string, ports: RotationPorts): Pr
     await refreshThenReschedule(config, ports);
 }
 
-/** After a comment on `postId`: if it is a live post that has reached its comment cap, its thread is rotated now. */
-export async function rotateIfCapReached(postId: string, ports: RotationPorts): Promise<void> {
+/** A new comment, as its event reports it. */
+export interface NewComment {
+    readonly postId: string;
+    /** The post's comment count as the event reports it; 0 when the event does not say. */
+    readonly reportedComments: number;
+}
+
+/**
+ * After a new comment: if its post is a live post that has reached its comment cap, its thread is rotated now. The
+ * count the comment's event reports spares a Reddit read for the many comments clearly below the cap; past that, the
+ * post is read for its current count.
+ */
+export async function rotateIfCapReached(comment: NewComment, ports: RotationPorts): Promise<void> {
+    const { postId } = comment;
     const commentCap = await ports.livePosts.getCommentCap(postId);
-    if (commentCap === undefined) {
+    if (commentCap === undefined || isClearlyBelowCommentCap(comment.reportedComments, commentCap)) {
         return;
     }
 
@@ -182,12 +214,39 @@ export async function rotateIfCapReached(postId: string, ports: RotationPorts): 
     }
 }
 
-/** A deleted post that was a live post stops being recorded, and its comment cap is forgotten. */
+/**
+ * A deleted post needs nothing more from a handover: a handover retiring it stops there, and one whose new post it
+ * was is forgotten.
+ */
+async function releaseDeletedPostFromHandovers(postId: string, livePosts: LivePosts): Promise<void> {
+    await Promise.all(
+        Object.entries(await livePosts.handovers()).map(
+            async ([configName, handover]: readonly [string, Handover]): Promise<void> => {
+                if (handover.newPostId === postId) {
+                    console.log(
+                        `Post ${postId} was deleted, so the handover of thread config ${configName} is forgotten.`,
+                    );
+                    await livePosts.forgetHandover(configName);
+                } else if (handover.oldPostId === postId) {
+                    console.log(
+                        `Post ${postId} was deleted, so the handover of thread config ${configName} will not retire it.`,
+                    );
+                    await livePosts.saveHandover(configName, { newPostId: handover.newPostId });
+                }
+            },
+        ),
+    );
+}
+
+/**
+ * A deleted post that was a live post stops being recorded, and its comment cap is forgotten; no unfinished handover
+ * acts on it any more.
+ */
 export async function forgetDeletedPost(postId: string, livePosts: LivePosts): Promise<void> {
     const configName = findConfigNameOfLivePost(await livePosts.all(), postId);
-    if (configName === undefined) {
-        return;
+    if (configName !== undefined) {
+        await livePosts.forget([configName], [postId]);
     }
 
-    await livePosts.forget([configName], [postId]);
+    await releaseDeletedPostFromHandovers(postId, livePosts);
 }

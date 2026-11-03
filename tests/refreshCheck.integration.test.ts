@@ -1,9 +1,9 @@
 import { scheduler } from "@devvit/scheduler";
 import type { ScheduledCronJob } from "@devvit/scheduler";
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { rotationPorts } from "../src/composition.js";
 import { REFRESH_CHECK_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
-import { ensureRefreshPending, requestRefresh, startRefreshCheck } from "../src/rotation/index.js";
+import { ensureRefreshPending, refreshAllThreads, requestRefresh, startRefreshCheck } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -20,6 +20,10 @@ async function refreshCheckCrons(): Promise<string[]> {
     return (await scheduler.listJobs())
         .filter(isRefreshCheck)
         .map(({ cron }: Readonly<{ cron: string }>): string => cron);
+}
+
+async function refreshJobRunTimes(): Promise<string[]> {
+    return (await listRefreshJobs()).map(({ runAt }: Readonly<{ runAt: Date }>): string => runAt.toISOString());
 }
 
 async function refreshJobIds(): Promise<string[]> {
@@ -61,5 +65,35 @@ describe("the refresh check", (): void => {
         await ensureRefreshPending(ports);
 
         await expect(refreshJobIds()).resolves.toStrictEqual(pendingIds);
+    });
+
+    devvitIt(
+        "replaces a refresh that was due an hour ago and never ran with exactly one new refresh",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            freezeTime("2026-04-21T10:43:00Z");
+            silenceConsole("error");
+            const ports = rotationPorts(HARNESS_CONTEXT);
+            await requestRefresh(ports);
+            vi.setSystemTime(new Date("2026-04-21T11:43:00Z"));
+
+            await ensureRefreshPending(ports);
+
+            await expect(refreshJobRunTimes()).resolves.toStrictEqual(["2026-04-21T11:43:01.000Z"]);
+        },
+    );
+
+    devvitIt("is started again by a refresh that finds it gone", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        silenceConsole("log");
+        silenceConsole("error");
+        const ports = rotationPorts(HARNESS_CONTEXT);
+
+        await refreshAllThreads(ports);
+
+        await expect(refreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
     });
 });

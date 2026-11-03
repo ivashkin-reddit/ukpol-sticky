@@ -5,8 +5,6 @@ import type { NotifyModerators } from "../../src/notifications/index.js";
 import type {
     LivePosts,
     LoadThreadConfigs,
-    ManagedComment,
-    ManagedPost,
     Posts,
     RefreshJobs,
     RefreshStatusStore,
@@ -25,18 +23,26 @@ export interface FakeLivePosts {
     readonly getCommentCap: Mock<LivePosts["getCommentCap"]>;
     readonly storeCommentCap: Mock<LivePosts["storeCommentCap"]>;
     readonly forgetCommentCap: Mock<LivePosts["forgetCommentCap"]>;
+    readonly handovers: Mock<LivePosts["handovers"]>;
+    readonly saveHandover: Mock<LivePosts["saveHandover"]>;
+    readonly forgetHandover: Mock<LivePosts["forgetHandover"]>;
 }
 
 export interface FakeRotationPorts {
     readonly ports: RotationPorts;
     readonly livePosts: FakeLivePosts;
     readonly notifyModerators: Mock<NotifyModerators>;
-    readonly posts: Readonly<{ get: Mock<Posts["get"]>; publish: Mock<Posts["publish"]> }>;
+    readonly posts: Readonly<{
+        get: Mock<Posts["get"]>;
+        getComment: Mock<Posts["getComment"]>;
+        publish: Mock<Posts["publish"]>;
+    }>;
     readonly refreshFailureAlert: FakeAlertLatch;
     readonly refreshJobs: Readonly<{
+        pendingRunTimes: Mock<RefreshJobs["pendingRunTimes"]>;
+        replaceWith: Mock<RefreshJobs["replaceWith"]>;
         cancelAll: Mock<RefreshJobs["cancelAll"]>;
-        scheduleAt: Mock<RefreshJobs["scheduleAt"]>;
-        isPending: Mock<RefreshJobs["isPending"]>;
+        hasHourlyCheck: Mock<RefreshJobs["hasHourlyCheck"]>;
         startHourlyCheck: Mock<RefreshJobs["startHourlyCheck"]>;
     }>;
     readonly refreshStatus: Readonly<{
@@ -49,16 +55,25 @@ export interface FakeRotationPorts {
     readonly threadLocks: Readonly<{ tryLock: Mock<ThreadLocks["tryLock"]>; unlock: Mock<ThreadLocks["unlock"]> }>;
 }
 
-function createFakeLivePosts(): FakeLivePosts {
+/** Resolves to `value`: a fake live posts method's default, an empty store's answer. */
+function resolving<Value>(value: Value): () => Promise<Value> {
+    return async (): Promise<Value> => await Promise.resolve(value);
+}
+
+/** Live posts whose methods are typed mocks: `stored`'s implementations, or an empty store's answers. */
+function createFakeLivePosts(stored: Partial<LivePosts>): FakeLivePosts {
     return {
-        all: vi.fn<LivePosts["all"]>().mockResolvedValue({}),
-        get: vi.fn<LivePosts["get"]>().mockResolvedValue(undefined),
-        configNames: vi.fn<LivePosts["configNames"]>().mockResolvedValue([]),
-        set: vi.fn<LivePosts["set"]>().mockResolvedValue(undefined),
-        forget: vi.fn<LivePosts["forget"]>().mockResolvedValue(undefined),
-        getCommentCap: vi.fn<LivePosts["getCommentCap"]>().mockResolvedValue(undefined),
-        storeCommentCap: vi.fn<LivePosts["storeCommentCap"]>().mockResolvedValue(undefined),
-        forgetCommentCap: vi.fn<LivePosts["forgetCommentCap"]>().mockResolvedValue(undefined),
+        all: vi.fn<LivePosts["all"]>(stored.all ?? resolving({})),
+        get: vi.fn<LivePosts["get"]>(stored.get ?? resolving(undefined)),
+        configNames: vi.fn<LivePosts["configNames"]>(stored.configNames ?? resolving([])),
+        set: vi.fn<LivePosts["set"]>(stored.set ?? resolving(undefined)),
+        forget: vi.fn<LivePosts["forget"]>(stored.forget ?? resolving(undefined)),
+        getCommentCap: vi.fn<LivePosts["getCommentCap"]>(stored.getCommentCap ?? resolving(undefined)),
+        storeCommentCap: vi.fn<LivePosts["storeCommentCap"]>(stored.storeCommentCap ?? resolving(undefined)),
+        forgetCommentCap: vi.fn<LivePosts["forgetCommentCap"]>(stored.forgetCommentCap ?? resolving(undefined)),
+        handovers: vi.fn<LivePosts["handovers"]>(stored.handovers ?? resolving({})),
+        saveHandover: vi.fn<LivePosts["saveHandover"]>(stored.saveHandover ?? resolving(undefined)),
+        forgetHandover: vi.fn<LivePosts["forgetHandover"]>(stored.forgetHandover ?? resolving(undefined)),
     };
 }
 
@@ -91,17 +106,28 @@ function createFakeThreadLocks(): FakeRotationPorts["threadLocks"] {
     };
 }
 
+/** When the fakes' one pending refresh is due: later than any time a test runs at, so never overdue. */
+export const PENDING_REFRESH_AT = new Date("2100-01-01T00:00:00Z");
+
 /**
- * Rotation ports whose every method is a typed mock: no live posts, a refresh pending, an alert latch that can be
- * claimed, working thread locks, and `configs` as the thread configs in force.
+ * Rotation ports whose every method is a typed mock: no live posts (unless `livePosts` implements them), a refresh
+ * pending and the hourly check scheduled, an alert latch that can be claimed, working thread locks, and `configs` as the thread configs in force.
  */
-export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): FakeRotationPorts {
-    const livePosts = createFakeLivePosts();
-    const posts = { get: vi.fn<Posts["get"]>(), publish: vi.fn<Posts["publish"]>() };
+export function createFakeRotationPorts(
+    configs: readonly ThreadConfig[] = [],
+    livePosts: Partial<LivePosts> = {},
+): FakeRotationPorts {
+    const fakeLivePosts = createFakeLivePosts(livePosts);
+    const posts = {
+        get: vi.fn<Posts["get"]>(),
+        getComment: vi.fn<Posts["getComment"]>(),
+        publish: vi.fn<Posts["publish"]>(),
+    };
     const refreshJobs = {
+        pendingRunTimes: vi.fn<RefreshJobs["pendingRunTimes"]>().mockResolvedValue([PENDING_REFRESH_AT]),
+        replaceWith: vi.fn<RefreshJobs["replaceWith"]>().mockResolvedValue(undefined),
         cancelAll: vi.fn<RefreshJobs["cancelAll"]>().mockResolvedValue(undefined),
-        scheduleAt: vi.fn<RefreshJobs["scheduleAt"]>().mockResolvedValue(undefined),
-        isPending: vi.fn<RefreshJobs["isPending"]>().mockResolvedValue(true),
+        hasHourlyCheck: vi.fn<RefreshJobs["hasHourlyCheck"]>().mockResolvedValue(true),
         startHourlyCheck: vi.fn<RefreshJobs["startHourlyCheck"]>().mockResolvedValue(undefined),
     };
     const notifyModerators = vi.fn<NotifyModerators>().mockResolvedValue(undefined);
@@ -112,7 +138,7 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
 
     return {
         ports: {
-            livePosts,
+            livePosts: fakeLivePosts,
             notifyModerators,
             posts,
             refreshFailureAlert: refreshFailureAlert.latch,
@@ -121,7 +147,7 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
             threadConfigs,
             threadLocks,
         },
-        livePosts,
+        livePosts: fakeLivePosts,
         notifyModerators,
         posts,
         refreshFailureAlert,
@@ -129,40 +155,5 @@ export function createFakeRotationPorts(configs: readonly ThreadConfig[] = []): 
         refreshStatus,
         threadConfigs,
         threadLocks,
-    };
-}
-
-export interface FakePost {
-    readonly post: ManagedPost;
-    readonly addComment: Mock<ManagedPost["addComment"]>;
-    readonly commentDistinguish: Mock<ManagedComment["distinguish"]>;
-    readonly distinguish: Mock<ManagedPost["distinguish"]>;
-    readonly edit: Mock<ManagedPost["edit"]>;
-    readonly lock: Mock<ManagedPost["lock"]>;
-    readonly sticky: Mock<ManagedPost["sticky"]>;
-    readonly unsticky: Mock<ManagedPost["unsticky"]>;
-}
-
-export type FakePostFields = Readonly<Pick<ManagedPost, "body" | "createdAt" | "id" | "numberOfComments" | "stickied">>;
-
-/** A ManagedPost whose actions are typed mocks; a comment added to it resolves to a comment with its own mock. */
-export function createFakePost(fields: FakePostFields): FakePost {
-    const commentDistinguish = vi.fn<ManagedComment["distinguish"]>().mockResolvedValue(undefined);
-    const addComment = vi.fn<ManagedPost["addComment"]>().mockResolvedValue({ distinguish: commentDistinguish });
-    const distinguish = vi.fn<ManagedPost["distinguish"]>().mockResolvedValue(undefined);
-    const edit = vi.fn<ManagedPost["edit"]>().mockResolvedValue(undefined);
-    const lock = vi.fn<ManagedPost["lock"]>().mockResolvedValue(undefined);
-    const sticky = vi.fn<ManagedPost["sticky"]>().mockResolvedValue(undefined);
-    const unsticky = vi.fn<ManagedPost["unsticky"]>().mockResolvedValue(undefined);
-
-    return {
-        post: { ...fields, addComment, distinguish, edit, lock, sticky, unsticky },
-        addComment,
-        commentDistinguish,
-        distinguish,
-        edit,
-        lock,
-        sticky,
-        unsticky,
     };
 }

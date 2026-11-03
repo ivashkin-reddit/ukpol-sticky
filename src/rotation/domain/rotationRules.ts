@@ -49,6 +49,15 @@ export function isDueForRotation(post: LivePostState, rotatesOn: RotationTrigger
     return pastRotationTime || post.numberOfComments >= rotatesOn.commentCap;
 }
 
+/**
+ * Whether a post is surely below its comment cap, going by the count a comment's event reports. The count may leave
+ * out the new comment, so one comment of margin; 0 means the event did not say, since a post that has just been
+ * commented on has at least one.
+ */
+export function isClearlyBelowCommentCap(reportedComments: number, commentCap: number): boolean {
+    return reportedComments > 0 && reportedComments + 1 < commentCap;
+}
+
 /** The thread configs a refresh visits, in order: enabled ones only, sticky first, otherwise in config page order. */
 export function refreshOrder(configs: readonly ThreadConfig[]): readonly ThreadConfig[] {
     // Array.prototype.sort is stable, so each group keeps its config page order.

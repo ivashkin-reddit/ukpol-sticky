@@ -1,4 +1,4 @@
-import { asT3ID } from "@devvit/public-api/types/tid.js";
+import { asT1ID, asT3ID } from "@devvit/public-api/types/tid.js";
 import { reddit } from "@devvit/reddit";
 import { redis } from "@devvit/redis";
 import { scheduler } from "@devvit/scheduler";
@@ -6,7 +6,7 @@ import type { ScheduledJob } from "@devvit/scheduler";
 import { vi } from "vitest";
 import type { RotationContext } from "../../src/composition.js";
 import { REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
-import type { ManagedPost } from "../../src/rotation/index.js";
+import type { ManagedComment, ManagedPost } from "../../src/rotation/index.js";
 
 /** createDevvitTest()'s default subreddit. */
 export const TEST_SUBREDDIT_ID = "t5_testsub";
@@ -17,6 +17,7 @@ export const TEST_SUBREDDIT_NAME = "testsub";
 const harnessReddit: RotationContext["reddit"] = {
     modMail: reddit.modMail,
     getCurrentSubredditName: async (): Promise<string> => (await reddit.getCurrentSubreddit()).name,
+    getCommentById: async (id: string): Promise<ManagedComment> => await reddit.getCommentById(asT1ID(id)),
     getPostById: async (id: string): Promise<ManagedPost> => await reddit.getPostById(asT3ID(id)),
     submitPost: async (options: Parameters<RotationContext["reddit"]["submitPost"]>[0]): Promise<ManagedPost> =>
         await reddit.submitPost(options),

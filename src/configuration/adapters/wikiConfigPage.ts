@@ -21,7 +21,14 @@ export type WikiConfigPageContext = SubredditNamePort &
             getWikiPage: (
                 subredditName: string,
                 page: string,
-            ) => Promise<Readonly<{ content: string; revisionId: string }>>;
+            ) => Promise<
+                Readonly<{
+                    content: string;
+                    revisionId: string;
+                    revisionAuthor?: Readonly<{ username: string }> | undefined;
+                }>
+            >;
+            getWikiPages: (subredditName: string) => Promise<readonly string[]>;
             updateWikiPage: (
                 options: Readonly<{ content: string; page: string; subredditName: string }>,
             ) => Promise<unknown>;
@@ -40,7 +47,8 @@ async function readRevision(context: WikiConfigPageContext): Promise<ConfigPageR
     const subredditName = await getSubredditName(context);
     try {
         const page = await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
-        return { content: page.content, revisionId: page.revisionId };
+        const revision = { content: page.content, revisionId: page.revisionId };
+        return page.revisionAuthor === undefined ? revision : { ...revision, authorName: page.revisionAuthor.username };
     } catch (error: unknown) {
         console.error(
             `Could not read the config page ${CONFIG_PAGE} in r/${subredditName}, so its revision is not applied:`,
@@ -50,19 +58,23 @@ async function readRevision(context: WikiConfigPageContext): Promise<ConfigPageR
     }
 }
 
-/** The config page's current content; "" when it cannot be read, as before the page exists. */
-async function readContent(context: WikiConfigPageContext, subredditName: string): Promise<string> {
-    try {
-        return (await context.reddit.getWikiPage(subredditName, CONFIG_PAGE)).content;
-    } catch {
-        return "";
+/**
+ * The config page's current content, or undefined when the subreddit's wiki has no such page. Absence is read from the
+ * wiki's page list, never inferred from a failed read: a read can fail for an existing page (Reddit unavailable, a
+ * permissions error), and treating that as absence would replace the moderators' thread configs with the template.
+ */
+async function readExistingContent(context: WikiConfigPageContext, subredditName: string): Promise<string | undefined> {
+    if (!(await context.reddit.getWikiPages(subredditName)).includes(CONFIG_PAGE)) {
+        return undefined;
     }
+
+    return (await context.reddit.getWikiPage(subredditName, CONFIG_PAGE)).content;
 }
 
 async function install(context: WikiConfigPageContext, content: string): Promise<void> {
     const subredditName = await getSubredditName(context);
     // A reinstall finds the moderators' thread configs on the page; replacing them would forget every live post.
-    if ((await readContent(context, subredditName)).trim() === "") {
+    if (((await readExistingContent(context, subredditName)) ?? "").trim() === "") {
         await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content });
     } else {
         console.log(`Kept the existing content of the config page ${CONFIG_PAGE}.`);

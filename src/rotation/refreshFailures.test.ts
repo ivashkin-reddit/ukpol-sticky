@@ -22,14 +22,40 @@ describe(alertingOnFailure, (): void => {
         expect(fakes.notifyModerators).not.toHaveBeenCalled();
     });
 
-    it("claims the alert, alerts moderators and passes the failure on", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "claims the alert, alerts moderators, confirms the alert was sent and passes the failure on",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const fakes = createFakeRotationPorts();
+            const fakes = createFakeRotationPorts();
 
-        await expect(alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR))).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(failureAlert("Reddit is down"));
-    });
+            await expect(alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR))).rejects.toBe(PUBLISH_ERROR);
+            expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(failureAlert("Reddit is down"));
+            expect(fakes.refreshFailureAlert.confirm).toHaveBeenCalledAfter(fakes.notifyModerators);
+        },
+    );
+
+    it(
+        "keeps the failure, and leaves the claim to lapse, when the sent alert cannot be confirmed",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const fakes = createFakeRotationPorts();
+            const confirmError = new Error("redis unavailable");
+            fakes.refreshFailureAlert.confirm.mockRejectedValue(confirmError);
+            const running = alertingOnFailure(fakes.ports, failingStep(PUBLISH_ERROR));
+
+            await expect(running).rejects.toThrow(
+                new Error(
+                    "Moderators were alerted that a refresh failed (Reddit is down), but the alert could not be recorded as sent",
+                ),
+            );
+            await expect(running).rejects.toHaveProperty("cause", confirmError);
+            expect(fakes.refreshFailureAlert.release).not.toHaveBeenCalled();
+        },
+    );
 
     it("sends nothing while an earlier alert's claim stands", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -55,7 +81,7 @@ describe(alertingOnFailure, (): void => {
         "releases the claim and reports both failures when the alert cannot be sent",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(3);
+            expect.assertions(4);
 
             const fakes = createFakeRotationPorts();
             const sendError = new Error("modmail unavailable");
@@ -67,6 +93,7 @@ describe(alertingOnFailure, (): void => {
             );
             await expect(running).rejects.toHaveProperty("cause", sendError);
             expect(fakes.refreshFailureAlert.release).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.refreshFailureAlert.confirm).not.toHaveBeenCalled();
         },
     );
 

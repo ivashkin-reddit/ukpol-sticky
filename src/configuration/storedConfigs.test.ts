@@ -54,22 +54,49 @@ describe(getThreadConfigs, (): void => {
 });
 
 describe("getThreadConfigs with an unreadable stored copy", (): void => {
-    it("claims the alert, alerts moderators once and rejects", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
+    it(
+        "claims the alert, alerts moderators once, confirms the alert was sent and rejects",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
 
-        const fakes = createFakeConfigurationPorts();
-        fakes.store.readConfigs.mockRejectedValue(UNREADABLE_ERROR);
+            const fakes = createFakeConfigurationPorts();
+            fakes.store.readConfigs.mockRejectedValue(UNREADABLE_ERROR);
 
-        await expect(getThreadConfigs(fakes.ports)).rejects.toBe(UNREADABLE_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith({
-            subject: "Sticky Manager cannot read its stored config",
-            bodyMarkdown: [
-                "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
-                "Edit and save the wiki page stickymgr/config (any change will do) to store a fresh copy.",
-                "Details: the stored copy is not JSON",
-            ].join("\n\n"),
-        });
-    });
+            await expect(getThreadConfigs(fakes.ports)).rejects.toBe(UNREADABLE_ERROR);
+            expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith({
+                subject: "Sticky Manager cannot read its stored config",
+                bodyMarkdown: [
+                    "The app's stored copy of the config cannot be read, so sticky posts will not be refreshed or replaced at their comment caps.",
+                    "Edit and save the wiki page stickymgr/config (any change will do) to store a fresh copy.",
+                    "Details: the stored copy is not JSON",
+                ].join("\n\n"),
+            });
+            expect(fakes.unreadableAlert.confirm).toHaveBeenCalledAfter(fakes.notifyModerators);
+        },
+    );
+
+    it(
+        "keeps the failure, and leaves the claim to lapse, when the sent alert cannot be confirmed",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const fakes = createFakeConfigurationPorts();
+            fakes.store.readConfigs.mockRejectedValue(UNREADABLE_ERROR);
+            const confirmError = new Error("redis unavailable");
+            fakes.unreadableAlert.confirm.mockRejectedValue(confirmError);
+            const reading = getThreadConfigs(fakes.ports);
+
+            await expect(reading).rejects.toThrow(
+                new Error(
+                    "Moderators were alerted that the stored config cannot be read (the stored copy is not JSON), but the alert could not be recorded as sent",
+                ),
+            );
+            await expect(reading).rejects.toHaveProperty("cause", confirmError);
+            expect(fakes.unreadableAlert.release).not.toHaveBeenCalled();
+        },
+    );
 
     it("sends nothing when another reader has already claimed the alert", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
@@ -86,7 +113,7 @@ describe("getThreadConfigs with an unreadable stored copy", (): void => {
         "releases the claim and reports both failures when the alert cannot be sent",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(3);
+            expect.assertions(4);
 
             const fakes = createFakeConfigurationPorts();
             fakes.store.readConfigs.mockRejectedValue(UNREADABLE_ERROR);
@@ -101,6 +128,7 @@ describe("getThreadConfigs with an unreadable stored copy", (): void => {
             );
             await expect(reading).rejects.toHaveProperty("cause", sendError);
             expect(fakes.unreadableAlert.release).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.unreadableAlert.confirm).not.toHaveBeenCalled();
         },
     );
 });

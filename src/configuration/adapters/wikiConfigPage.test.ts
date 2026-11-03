@@ -20,6 +20,23 @@ describe("wikiConfigPage().read", (): void => {
         expect(fakes.reddit.getWikiPage).toHaveBeenCalledExactlyOnceWith("testsub", "stickymgr/config");
     });
 
+    it("reads who saved the revision, when Reddit says", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const fakes = createFakeDevvitContext("testsub");
+        fakes.reddit.getWikiPage.mockResolvedValue({
+            content: "name: x",
+            revisionId: "rev-2",
+            revisionAuthor: { username: "author_mod" },
+        });
+
+        await expect(wikiConfigPage(fakes.context).read()).resolves.toStrictEqual({
+            content: "name: x",
+            revisionId: "rev-2",
+            authorName: "author_mod",
+        });
+    });
+
     it("logs and reads nothing when the page cannot be fetched", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
 
@@ -38,15 +55,16 @@ describe("wikiConfigPage().read", (): void => {
 
 describe("wikiConfigPage().install", (): void => {
     it(
-        "writes the page, then lists it and makes it editable by moderators only",
+        "writes the template to a page the wiki does not have yet, then lists it and makes it editable by moderators only",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(3);
+            expect.assertions(4);
 
             const fakes = createFakeDevvitContext("testsub");
-            fakes.reddit.getWikiPage.mockRejectedValue(new Error("PAGE_NOT_FOUND"));
+            fakes.reddit.getWikiPages.mockResolvedValue(["config/sidebar"]);
             await wikiConfigPage(fakes.context).install("# template");
 
+            expect(fakes.reddit.getWikiPage).not.toHaveBeenCalled();
             expect(fakes.reddit.updateWikiPage).toHaveBeenCalledExactlyOnceWith({
                 subredditName: "testsub",
                 page: "stickymgr/config",
@@ -62,6 +80,18 @@ describe("wikiConfigPage().install", (): void => {
             expect(fakes.reddit.updateWikiPage).toHaveBeenCalledBefore(fakes.reddit.updateWikiPageSettings);
         },
     );
+
+    it("writes nothing when the wiki's pages cannot be listed", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const fakes = createFakeDevvitContext("testsub");
+        const listError = new Error("503 Service Unavailable");
+        fakes.reddit.getWikiPages.mockRejectedValue(listError);
+
+        await expect(wikiConfigPage(fakes.context).install("# template")).rejects.toBe(listError);
+        expect(fakes.reddit.updateWikiPage).not.toHaveBeenCalled();
+        expect(fakes.reddit.updateWikiPageSettings).not.toHaveBeenCalled();
+    });
 });
 
 describe("wikiConfigPage().install on a reinstall", (): void => {
@@ -73,6 +103,7 @@ describe("wikiConfigPage().install on a reinstall", (): void => {
 
             const logSpy = silenceConsole("log");
             const fakes = createFakeDevvitContext("testsub");
+            fakes.reddit.getWikiPages.mockResolvedValue(["stickymgr/config"]);
             fakes.reddit.getWikiPage.mockResolvedValue({ content: "name: daily-thread", revisionId: "rev-9" });
 
             await wikiConfigPage(fakes.context).install("# template");
@@ -94,6 +125,7 @@ describe("wikiConfigPage().install on a reinstall", (): void => {
         expect.assertions(1);
 
         const fakes = createFakeDevvitContext("testsub");
+        fakes.reddit.getWikiPages.mockResolvedValue(["stickymgr/config"]);
         fakes.reddit.getWikiPage.mockResolvedValue({ content: "  \n", revisionId: "rev-1" });
 
         await wikiConfigPage(fakes.context).install("# template");
@@ -103,5 +135,19 @@ describe("wikiConfigPage().install on a reinstall", (): void => {
             page: "stickymgr/config",
             content: "# template",
         });
+    });
+
+    it("writes nothing when the existing config page cannot be read", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const fakes = createFakeDevvitContext("testsub");
+        const readError = new Error("503 Service Unavailable");
+        fakes.reddit.getWikiPages.mockResolvedValue(["stickymgr/config"]);
+        fakes.reddit.getWikiPage.mockRejectedValue(readError);
+
+        // The page holds the moderators' thread configs: replacing it with the template would lose them.
+        await expect(wikiConfigPage(fakes.context).install("# template")).rejects.toBe(readError);
+        expect(fakes.reddit.updateWikiPage).not.toHaveBeenCalled();
+        expect(fakes.reddit.updateWikiPageSettings).not.toHaveBeenCalled();
     });
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Schedule, ThreadConfig } from "../../configuration/index.js";
-import { earliest, getRotationTime, isDueForRotation, refreshOrder } from "./rotationRules.js";
+import {
+    earliest,
+    getRotationTime,
+    isClearlyBelowCommentCap,
+    isDueForRotation,
+    refreshOrder,
+} from "./rotationRules.js";
 import type { RotationTriggers } from "./rotationRules.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -186,4 +192,30 @@ describe(earliest, (): void => {
 
         expect(earliest([undefined])).toBeUndefined();
     });
+});
+
+interface CapExample {
+    readonly reported: number;
+    readonly cap: number;
+    readonly below: boolean;
+    readonly why: string;
+}
+
+describe(isClearlyBelowCommentCap, (): void => {
+    it.for<CapExample>([
+        { reported: 50, cap: 100, below: true, why: "far below" },
+        { reported: 98, cap: 100, below: true, why: "below even counting this comment" },
+        { reported: 99, cap: 100, below: false, why: "at the cap if the count leaves out this comment" },
+        { reported: 100, cap: 100, below: false, why: "at the cap" },
+        { reported: 150, cap: 100, below: false, why: "past the cap" },
+        { reported: 0, cap: 100, below: false, why: "not reported: a post with a new comment has at least one" },
+    ])(
+        "is $below for $reported reported comments under a cap of $cap ($why)",
+        TEST_OPTIONS,
+        (example: CapExample): void => {
+            expect.assertions(1);
+
+            expect(isClearlyBelowCommentCap(example.reported, example.cap)).toBe(example.below);
+        },
+    );
 });

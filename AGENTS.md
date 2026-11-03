@@ -36,6 +36,7 @@ These choices are deliberate. Revisit one only when the user asks:
 
 - **One context.** `configuration` and `rotation` are modules of one context, not two: a thread config's schedule and comment cap mean the same to both, so a translation between them would map each term onto itself. Configuration becomes its own context, with a translation at its interface, only once something edits thread configs in a shape rotation does not share.
 - **Ports with one adapter.** Each port has a single adapter, and the ports still earn their place. They keep storage layouts and Devvit's API out of use cases and their tests, and they confine the move to `@devvit/web` to adapters and wiring.
+- **Rotations finish after failures.** Every step after a rotation publishes its post runs in `finishHandover` ([threadRefresh.ts](src/rotation/threadRefresh.ts)) and first checks what Reddit shows or the handover records, so the next refresh finishes an interrupted rotation without repeating a step. A new rotation step follows the same rule.
 - **Rules stay with their capability.** Rotation rules live in `rotation/domain/` and config checks in `configuration/domain/`. A domain module shared by both would take each rule away from the module that owns it.
 
 ## Logs
