@@ -1,90 +1,83 @@
-# ukpol-sticky
+# Sticky Manager
 
-An app to allow timed or comment-cap-only megathreads for /r/ukpolitics.
+Sticky Manager publishes, stickies and rotates recurring discussion threads for [r/ukpolitics](https://www.reddit.com/r/ukpolitics/). It runs on Reddit's [Devvit](https://developers.reddit.com/) platform as the app **ukpol-megabot**, and moderators configure it on a subreddit wiki page.
 
-This app is controlled through the subreddit wiki page `stickymgr/config` on the subreddit where it is installed. The wiki page uses YAML multi-document format: each YAML document defines one managed post, and multiple documents are separated with `---`.
+- **Scheduled threads:** a new post every day, or on one day each week, at a set UTC time.
+- **Comment caps:** a thread that fills up is replaced straight away, whatever its schedule.
+- **Clean handovers:** the outgoing post can get a pinned end note pointing readers on, and be locked.
+- **Live edits:** a change to a thread's body is applied to its current post in place.
+- **Moderator alerts:** configuration mistakes and failures are reported by modmail, once per problem.
+
+## Getting started
+
+1. Install the app on your subreddit.
+2. Open the wiki page `stickymgr/config`. The app creates it on install with a commented example. If the page already has content, the app keeps it. Either way, the app restricts editing to moderators.
+3. Add one YAML document per thread, separated by `---` (see [Configuration](#configuration)), and save the page.
+
+The app checks every save. A valid page takes effect straight away: new threads are published and existing ones updated. An invalid page is rejected with one modmail explaining the problem, and the previous configuration stays in force.
 
 ## How it works
 
-- When the app is installed, it writes a commented example to the wiki page, unless the page already has content.
-- Valid wiki updates are stored immediately and an immediate refresh pass is queued. An invalid update gets one modmail; editing other wiki pages does not repeat it.
-- If the `body` changes for an active tracked post, the app edits the live Reddit post body instead of creating a replacement post.
-- Posts with `frequency` and `postTime` rotate when either the next scheduled UTC time is reached or `maxComments` is hit, whichever happens first. A daily post created less than six hours before its next scheduled time (by a comment-cap rotation, say) runs until the scheduled time after.
-- Posts without `frequency` and `postTime` are comment-cap-only and rotate only when `maxComments` is hit.
-- When a post rotates, the app can add an `endNote` comment to the old thread and lock it if `lockOnRefresh` is `true`.
-- If a config is removed or changed to `enabled: false`, the app stops tracking it on the next refresh pass. It does not delete the existing Reddit post automatically.
-- If the app's stored copy of the config ever becomes unreadable, it stops refreshing posts and sends the moderators one modmail. Editing and saving the wiki page `stickymgr/config` (any change will do) fixes it.
-- If a refresh fails (for example, Reddit is unavailable while a post is rotating), the moderators get one modmail, "Sticky Manager could not refresh its threads". No further modmail follows until a refresh succeeds. A thread whose rotation stopped part-way may need checking: its old post may be unstickied but not yet replaced, or its new post not yet stickied and the old one not yet locked. A thread that fails does not hold up the others, and is retried within 15 minutes.
-- Once an hour, at minute 43, the app checks that a refresh is scheduled. If none is, as after a refresh that failed, it runs one, which retries whatever failed.
+Each YAML document on the config page is a _thread config_: it describes one recurring thread. The post currently serving it is its _live post_.
 
-## Configuration rules
+- **Rotation:** a live post is replaced when its scheduled time arrives or it reaches `maxComments`, whichever comes first. A thread without `frequency` and `postTime` is replaced only at its comment cap.
+- **The six-hour rule:** a daily post created less than six hours before its next scheduled time stays up until the scheduled time after that. This happens when a comment-cap rotation lands shortly before a scheduled one.
+- **Handover:** in order:
+    1. the old post is unstickied;
+    2. the new post is published, distinguished and, if `sticky` is set, stickied;
+    3. the old post gets its `endNote`, then is locked if `lockOnRefresh` is set.
+- **Edits:** changing `body` edits the live post in place. Reddit titles cannot be edited, so a changed `title` takes effect at the next rotation.
+- **Disabling or removing a thread:** set `enabled: false` or delete its document. The app stops managing the thread and leaves its last post as it is.
+- **Deleted posts:** if a live post is deleted, the app publishes a new one for that thread at its next refresh. To get one straight away, save the config page (any change will do).
+- **Recovery:** a thread that fails to rotate does not hold up the others, and is retried within 15 minutes. Once an hour, at minute 43, the app also checks that a refresh is scheduled, and runs one if not.
 
-- `name`, `enabled`, `title`, `maxComments`, and `body` are required.
-- `name` must be unique across the entire wiki page, 1 to 64 characters long, and not a reserved word such as `toString` or `__proto__`.
-- `maxComments` must be an integer greater than or equal to `1`.
-- `frequency` and `postTime` must either both be set or both be omitted.
-- `postTime` must use `HH:mm` 24-hour format and is always interpreted as UTC.
-- `frequency` must be one of `daily`, `mondays`, `tuesdays`, `wednesdays`, `thursdays`, `fridays`, `saturdays`, or `sundays`.
-- `title` may contain one `{{date ...}}` token using a `date-fns` format string such as `{{date yyyy-MM-dd}}`.
+The app posts and comments as its own account, u/ukpol-megabot.
+
+## Configuration
+
+The config page uses YAML. Each thread is a separate document, and documents are separated by a line containing only `---`.
+
+### Rules
+
+- `name`, `enabled`, `title`, `maxComments` and `body` are required. Unknown keys are rejected.
+- `name` must be unique on the page, 1 to 64 characters long, and not a reserved word such as `toString` or `__proto__`.
+- `maxComments` must be a whole number, 1 or more.
+- `frequency` and `postTime` must both be set, or both be omitted.
+- `postTime` uses the 24-hour `HH:mm` format and is always UTC.
+- `frequency` is one of `daily`, `mondays`, `tuesdays`, `wednesdays`, `thursdays`, `fridays`, `saturdays` or `sundays`.
+- `title` may contain one [date token](#date-tokens).
 - Reddit's limits apply: `title` must not be empty and must be at most 300 characters, `body` at most 40,000, and `endNote` at most 10,000.
-- Unknown keys are rejected.
 
-## Configuration reference
+### Reference
 
-| Option          | Required | Type    | Description                                                                                                                                                                                        |
-| --------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`          | Yes      | string  | Internal unique identifier for the config. Keep it stable once a thread is live. Changing it makes the app treat the config as a different managed post.                                           |
-| `enabled`       | Yes      | boolean | Turns the config on or off. If `false`, the config stays in the wiki page but the app stops managing it on the next refresh pass. Existing Reddit posts are left alone.                            |
-| `title`         | Yes      | string  | Title used when a new post is created. It can include one `{{date ...}}` token. Changing `title` does not retitle an already-live post; the new title is used the next time the post rotates.      |
-| `frequency`     | No       | string  | Schedule cadence for timed posts. Use `daily` for every day, or a weekday value such as `wednesdays` for weekly rotation on that day. Omit it together with `postTime` for comment-cap-only posts. |
-| `postTime`      | No       | string  | Scheduled UTC time for rotation in `HH:mm` format. Only valid when `frequency` is also set.                                                                                                        |
-| `sticky`        | No       | boolean | If `true`, the newly created post is stickied after submission. If omitted or `false`, the post is not stickied.                                                                                   |
-| `maxComments`   | Yes      | integer | Rotation threshold. When the live post reaches or exceeds this number of comments, the app creates a replacement post.                                                                             |
-| `body`          | Yes      | string  | Selftext for the post. If the body changes in the wiki page while the post is still active, the app edits the live post body in place.                                                             |
-| `endNote`       | No       | string  | Optional distinguished comment added to the outgoing post once its replacement is published. Useful for pointing readers to the replacement thread.                                                |
-| `lockOnRefresh` | No       | boolean | If `true`, the outgoing post is locked when it is rotated. This happens after the optional `endNote` comment is posted.                                                                            |
+| Option          | Required | Type    | Description                                                                                                                                     |
+| --------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | Yes      | string  | Identifies the thread. Keep it stable once the thread is live: a new name makes the app treat it as a different thread.                         |
+| `enabled`       | Yes      | boolean | Whether the app manages this thread. When `false`, the app stops managing it and leaves its last post as it is.                                 |
+| `title`         | Yes      | string  | Title for each new post. May contain one date token. A change takes effect at the next rotation.                                                |
+| `frequency`     | No       | string  | `daily`, or a weekday such as `wednesdays` for one post a week. Omit it together with `postTime` for a thread replaced only at its comment cap. |
+| `postTime`      | No       | string  | Scheduled rotation time, `HH:mm` in UTC. Only valid with `frequency`.                                                                           |
+| `sticky`        | No       | boolean | When `true`, each new post is stickied. Defaults to `false`.                                                                                    |
+| `maxComments`   | Yes      | integer | The comment cap: when the live post reaches this many comments, it is replaced.                                                                 |
+| `body`          | Yes      | string  | Text of each post. A change is applied to the live post in place.                                                                               |
+| `endNote`       | No       | string  | A distinguished comment, pinned to the outgoing post once its replacement is published. Useful for pointing readers to the new thread.          |
+| `lockOnRefresh` | No       | boolean | When `true`, the outgoing post is locked after its end note is added.                                                                           |
 
-## Date token examples
+Use YAML block scalars such as `|` for `body` and `endNote` to keep paragraphs and line breaks.
 
-You can include a single `{{date ...}}` token in `title`.
+### Date tokens
 
-- `{{date yyyy-MM-dd}}` -> `2026-04-22`
-- `{{date EEEE d MMMM yyyy}}` -> `Wednesday 22 April 2026`
-- `{{date dd/MM/yyyy}}` -> `22/04/2026`
+A title may contain one `{{date ...}}` token, which is replaced with the date the post is published. The format inside it is a [date-fns format string](https://date-fns.org/docs/format):
 
-## YAML layout
-
-Each post is a separate YAML document:
-
-```yaml
-name: daily
-enabled: true
-title: Daily megathread for {{date yyyy-MM-dd}}
-frequency: daily
-postTime: 02:00
-sticky: true
-maxComments: 1000
-body: |
-    Daily discussion goes here.
----
-name: weekend
-enabled: true
-title: Weekend thread for {{date EEEE d MMMM yyyy}}
-frequency: saturdays
-postTime: 08:00
-sticky: true
-maxComments: 1500
-body: |
-    Weekend discussion goes here.
-```
-
-Use YAML block scalars such as `|` for `body` and `endNote` when you want to preserve paragraphs and line breaks.
+| Token                       | Example                   |
+| --------------------------- | ------------------------- |
+| `{{date yyyy-MM-dd}}`       | `2026-04-22`              |
+| `{{date EEEE d MMMM yyyy}}` | `Wednesday 22 April 2026` |
+| `{{date dd/MM/yyyy}}`       | `22/04/2026`              |
 
 ## Examples
 
 ### Daily sticky megathread
-
-Use this for the standard daily discussion thread.
 
 ```yaml
 name: daily
@@ -103,9 +96,7 @@ endNote: |
 lockOnRefresh: true
 ```
 
-### Weekly post on a specific day
-
-Use a weekday frequency when you want one recurring thread per week.
+### Weekly thread on a set day
 
 ```yaml
 name: weekend-thread
@@ -124,9 +115,7 @@ endNote: |
 lockOnRefresh: true
 ```
 
-### Scheduled non-sticky post
-
-Use this for recurring posts that should be created on a schedule but should not take a sticky slot.
+### Scheduled thread without a sticky slot
 
 ```yaml
 name: overnight-roundup
@@ -137,13 +126,11 @@ postTime: 23:30
 maxComments: 300
 body: |
     This thread collects overnight links and updates.
-
-    It is intentionally not stickied.
 ```
 
-### Comment-cap-only live event thread
+### Live event thread, replaced only when full
 
-Omit both `frequency` and `postTime` to keep the thread open until it fills up.
+Omit both `frequency` and `postTime` to keep a thread open until it reaches its comment cap.
 
 ```yaml
 name: breaking-news
@@ -153,16 +140,12 @@ sticky: true
 maxComments: 2500
 body: |
     Use this thread for fast-moving live coverage.
-
-    A replacement thread will only be created when this post hits the comment cap.
 endNote: |
     This live thread is full. Please continue in the newest megathread.
 lockOnRefresh: true
 ```
 
-### Mixed configuration page
-
-You can combine daily, weekly, and comment-cap-only threads in the same wiki page.
+### Several threads on one page
 
 ```yaml
 name: daily
@@ -193,3 +176,48 @@ maxComments: 2500
 body: |
     Live event coverage.
 ```
+
+## Moderator alerts
+
+The app reports problems to the subreddit's moderators by modmail. A rejected save is reported once; editing other wiki pages does not repeat it.
+
+| Subject                                              | Meaning                                                                    | What to do                                                          |
+| ---------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Invalid YAML in wiki page stickymgr/config           | The page is not valid YAML.                                                | Fix the YAML and save the page again.                               |
+| Invalid config in wiki page stickymgr/config         | A thread config breaks one of the [rules](#rules). The modmail says which. | Fix it and save the page again.                                     |
+| Duplicate config names in wiki page stickymgr/config | Two thread configs share a `name`.                                         | Rename one and save the page again.                                 |
+| Incomplete schedule in config _name_                 | Only one of `frequency` and `postTime` is set.                             | Set both, or neither.                                               |
+| Invalid date format in config _name_                 | The title's date token is not a valid date-fns format.                     | Correct the format and save the page again.                         |
+| Sticky Manager cannot read its stored config         | The app's saved copy of the config is unreadable, so it has stopped.       | Save the config page (any change will do).                          |
+| Sticky Manager could not refresh its threads         | A refresh failed, for example because Reddit was unavailable.              | Check the threads named in the modmail. The app retries on its own. |
+
+Until a rejected page is fixed, the previously accepted configuration stays in force.
+
+A rotation interrupted part-way can leave two states behind. In the first, the old post is unstickied but no replacement has been published yet. In the second, the new post is published but not yet stickied, and the old post is not yet locked. The failure modmail is sent once per outage; no further one follows until a refresh succeeds.
+
+## Privacy and terms
+
+- [Privacy Policy](PRIVACY.md)
+- [Terms and Conditions](TERMS.md)
+
+## Development
+
+Sticky Manager is a TypeScript Devvit app built on `@devvit/public-api`. It is based on [fsvreddit/ukpol-sticky](https://github.com/fsvreddit/ukpol-sticky).
+
+```sh
+npm ci
+npm run typecheck
+npm test                   # unit tests
+npm run test:integration   # on Devvit's in-memory test harness
+npm run lint
+npm run format:check
+```
+
+CI runs the same checks on every push. To try a change on Reddit, playtest it on a test subreddit you moderate: `npx devvit playtest <subreddit>`.
+
+- [AGENTS.md](AGENTS.md) describes the architecture and the project's conventions.
+- [CONTEXT.md](CONTEXT.md) defines the terms used in the code, logs and modmail.
+
+## License
+
+Sticky Manager is released under the [BSD 3-Clause License](LICENSE).
