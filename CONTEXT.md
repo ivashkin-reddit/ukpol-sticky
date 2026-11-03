@@ -60,6 +60,10 @@ _Avoid_: closing comment
 One pass over all enabled thread configs that rotates every live post that is due and brings the others' bodies up to date.
 _Avoid_: update, sync
 
+**Applied thread configs**:
+The thread configs the last refresh applied. While the thread configs in force differ from them, as after a config page save, a refresh is due at once, whatever else is pending.
+_Avoid_: dirty flag, pending changes
+
 **Refresh check**:
 The hourly check that a refresh is pending and on time, and that the config page's latest revision has been applied. It requests a refresh when none will run, as after a refresh that failed or a scheduled one that never ran, and applies a revision nothing applied.
 _Avoid_: safety net, heartbeat, cron job

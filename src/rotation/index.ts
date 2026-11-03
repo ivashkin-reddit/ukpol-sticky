@@ -2,6 +2,7 @@
 // schedules and at their comment caps. Its use cases take the ports in ports.ts; src/composition.ts wires the adapters.
 
 export type {
+    AppliedThreadConfigs,
     Handover,
     LastRefresh,
     LivePosts,
