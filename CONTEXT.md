@@ -44,6 +44,10 @@ _Avoid_: tracked post, sticky post, current thread
 Replacing a thread config's live post with a new one: the old post is retired, the new one published.
 _Avoid_: refresh (that is the whole pass), recreation
 
+**Handover**:
+The rest of a rotation once the new live post is published: distinguishing and stickying it, then retiring the old post. A handover that a failure interrupts is finished by the next refresh.
+_Avoid_: recovery, completion
+
 **Retirement**:
 What happens to the outgoing live post on rotation: it is unstickied, given its end note and locked, as its thread config asks.
 _Avoid_: archiving, closing
@@ -57,7 +61,7 @@ One pass over all enabled thread configs that rotates every live post that is du
 _Avoid_: update, sync
 
 **Refresh check**:
-The hourly check that a refresh is pending; when none is, as after a refresh that failed, it requests one.
+The hourly check that a refresh is pending and on time, and that the config page's latest revision has been applied. It requests a refresh when none will run, as after a refresh that failed or a scheduled one that never ran, and applies a revision nothing applied.
 _Avoid_: safety net, heartbeat, cron job
 
 **Refresh status**:

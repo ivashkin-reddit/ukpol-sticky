@@ -23,6 +23,7 @@ The app keeps a small amount of state in the storage Devvit provides for each in
 
 - the accepted thread configs, and the IDs of the most recently accepted and rejected config page revisions;
 - the ID of each thread's current post, and its comment cap;
+- while a rotation is in progress, the IDs of the posts it is replacing and publishing, and of the end note it added, so an interrupted rotation can be finished;
 - the refresh status: when refreshes last ran and succeeded, how the last one ended, and when the next is due;
 - short-lived locks that stop two refreshes changing the same thread at once;
 - markers recording that moderators have already been alerted to an ongoing problem.
@@ -46,6 +47,8 @@ The app runs entirely on Reddit's Devvit platform and makes no requests to servi
 ## Retention
 
 - Locks expire after two minutes.
+- A rotation's record is deleted as soon as the rotation is finished.
+- A marker that moderators are being alerted expires after ten minutes, unless the alert was sent; then it is kept until the problem is over.
 - A post's comment-cap record is deleted when the post is replaced, and expires after 28 days in any case.
 - A thread's records are deleted when the thread is removed from the config page or its post is deleted.
 - Other state is kept until it is replaced.

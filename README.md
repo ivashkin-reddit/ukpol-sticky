@@ -14,7 +14,7 @@ Sticky Manager publishes, stickies and rotates recurring discussion threads for 
 2. Open the wiki page `stickymgr/config`. The app creates it on install with a commented example. If the page already has content, the app keeps it. Either way, the app restricts editing to moderators.
 3. Add one YAML document per thread, separated by `---` (see [Configuration](#configuration)), and save the page.
 
-The app checks every save. A valid page takes effect straight away: new threads are published and existing ones updated. An invalid page is rejected with one modmail explaining the problem, and the previous configuration stays in force.
+The app checks every save. A valid page takes effect straight away: new threads are published and existing ones updated. An invalid page is rejected with one modmail explaining the problem, and the previous configuration stays in force. If a save is ever missed, the app picks it up within the hour.
 
 ## How it works
 
@@ -29,7 +29,7 @@ Each YAML document on the config page is a _thread config_: it describes one rec
 - **Edits:** changing `body` edits the live post in place. Reddit titles cannot be edited, so a changed `title` takes effect at the next rotation.
 - **Disabling or removing a thread:** set `enabled: false` or delete its document. The app stops managing the thread and leaves its last post as it is.
 - **Deleted posts:** if a live post is deleted, the app publishes a new one for that thread at its next refresh. To get one straight away, save the config page (any change will do).
-- **Recovery:** a thread that fails to rotate does not hold up the others, and is retried within 15 minutes. Once an hour, at minute 43, the app also checks that a refresh is scheduled, and runs one if not.
+- **Recovery:** a thread that fails to rotate does not hold up the others, and is retried within 15 minutes. The retry finishes a rotation the failure interrupted: it stickies and distinguishes the new post, and gives the old one its end note and lock, without repeating any step already done. Once an hour, at minute 43, the app also checks that a refresh is scheduled and on time, replacing one that is stuck, and applies any save to the config page it missed. Each refresh in turn makes sure that hourly check is still scheduled.
 
 The app posts and comments as its own account, u/ukpol-megabot.
 
@@ -181,19 +181,21 @@ body: |
 
 The app reports problems to the subreddit's moderators by modmail. A rejected save is reported once; editing other wiki pages does not repeat it.
 
-| Subject                                              | Meaning                                                                    | What to do                                                          |
-| ---------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Invalid YAML in wiki page stickymgr/config           | The page is not valid YAML.                                                | Fix the YAML and save the page again.                               |
-| Invalid config in wiki page stickymgr/config         | A thread config breaks one of the [rules](#rules). The modmail says which. | Fix it and save the page again.                                     |
-| Duplicate config names in wiki page stickymgr/config | Two thread configs share a `name`.                                         | Rename one and save the page again.                                 |
-| Incomplete schedule in config _name_                 | Only one of `frequency` and `postTime` is set.                             | Set both, or neither.                                               |
-| Invalid date format in config _name_                 | The title's date token is not a valid date-fns format.                     | Correct the format and save the page again.                         |
-| Sticky Manager cannot read its stored config         | The app's saved copy of the config is unreadable, so it has stopped.       | Save the config page (any change will do).                          |
-| Sticky Manager could not refresh its threads         | A refresh failed, for example because Reddit was unavailable.              | Check the threads named in the modmail. The app retries on its own. |
+| Subject                                              | Meaning                                                                    | What to do                                                                                                     |
+| ---------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Invalid YAML in wiki page stickymgr/config           | The page is not valid YAML.                                                | Fix the YAML and save the page again.                                                                          |
+| Invalid config in wiki page stickymgr/config         | A thread config breaks one of the [rules](#rules). The modmail says which. | Fix it and save the page again.                                                                                |
+| Duplicate config names in wiki page stickymgr/config | Two thread configs share a `name`.                                         | Rename one and save the page again.                                                                            |
+| Incomplete schedule in config _name_                 | Only one of `frequency` and `postTime` is set.                             | Set both, or neither.                                                                                          |
+| Invalid date format in config _name_                 | The title's date token is not a valid date-fns format.                     | Correct the format and save the page again.                                                                    |
+| Sticky Manager cannot read its stored config         | The app's saved copy of the config is unreadable, so it has stopped.       | Save the config page (any change will do).                                                                     |
+| Sticky Manager could not refresh its threads         | A refresh failed, for example because Reddit was unavailable.              | Nothing, usually: the app retries on its own. If the failure persists, check the threads named in the modmail. |
 
 Until a rejected page is fixed, the previously accepted configuration stays in force.
 
-A rotation interrupted part-way can leave two states behind. In the first, the old post is unstickied but no replacement has been published yet. In the second, the new post is published but not yet stickied, and the old post is not yet locked. The failure modmail is sent once per outage; no further one follows until a refresh succeeds.
+A rotation interrupted part-way leaves its thread part-way through until the retry finishes it, within 15 minutes if Reddit is back by then. Meanwhile the old post may be unstickied with no replacement yet, or the new post published but not yet stickied, and the old post not yet locked. The failure modmail is sent once per outage; no further one follows until a refresh succeeds.
+
+If a rotation interrupted by the failure published its replacement but could not record it, the retry publishes another. Delete the extra, unstickied post. This is rare: it needs a failure in the moment between Reddit creating the post and the app recording it.
 
 ## Privacy and terms
 
