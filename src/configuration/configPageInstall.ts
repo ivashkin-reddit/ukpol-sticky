@@ -1,19 +1,6 @@
-import type { WikiPagePermissionLevel } from "@devvit/public-api";
-import { getSubredditName } from "../platform/index.js";
-import type { SubredditNamePort } from "../platform/index.js";
-import { CONFIG_PAGE } from "./threadConfig.js";
+import type { ConfigPage } from "./ports.js";
 
-// WORKAROUND: WikiPagePermissionLevel.MODS_ONLY is written as its numeric value
-//   cause: @devvit/public-api 0.15.2 re-exports @devvit/reddit with `export type *`, and @devvit/reddit's package
-//          exports reach its models (where the WikiPagePermissionLevel enum lives) only as types, so the enum has no
-//          importable runtime value; `WikiPagePermissionLevel.MODS_ONLY` would be undefined at runtime.
-//   blocked: the enum value ships inside Devvit's published packages; this repo cannot export it.
-//   fix: Devvit exports WikiPagePermissionLevel as a value; then pass WikiPagePermissionLevel.MODS_ONLY directly.
-//   until: a value import of WikiPagePermissionLevel from "@devvit/public-api" compiles without TS1362.
-// The enum-member type annotation keeps tsc checking the literal against Devvit's definition.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment -- see the WORKAROUND above
-const MODS_ONLY: WikiPagePermissionLevel.MODS_ONLY = 2;
-
+// The commented example written to a new config page: the format moderators follow when defining thread configs.
 const CONFIG_PAGE_TEMPLATE = [
     "# Sticky Manager configuration file",
     "# This file is used to configure sticky posts for your subreddit.",
@@ -46,31 +33,7 @@ const CONFIG_PAGE_TEMPLATE = [
     "# Just like Automoderator, you can create multiple sticky posts by adding more entries, separated with ---.",
 ].join("\n");
 
-export type ConfigPageInstallContext = SubredditNamePort &
-    Readonly<{
-        reddit: Readonly<{
-            updateWikiPage: (
-                options: Readonly<{ content: string; page: string; subredditName: string }>,
-            ) => Promise<unknown>;
-            updateWikiPageSettings: (
-                options: Readonly<{
-                    listed: boolean;
-                    page: string;
-                    permLevel: WikiPagePermissionLevel;
-                    subredditName: string;
-                }>,
-            ) => Promise<unknown>;
-        }>;
-    }>;
-
-/** Writes the commented example to the config page and makes the page editable by moderators only. */
-export async function installConfigPage(context: ConfigPageInstallContext): Promise<void> {
-    const subredditName = await getSubredditName(context);
-    await context.reddit.updateWikiPage({ subredditName, page: CONFIG_PAGE, content: CONFIG_PAGE_TEMPLATE });
-    await context.reddit.updateWikiPageSettings({
-        subredditName,
-        page: CONFIG_PAGE,
-        permLevel: MODS_ONLY,
-        listed: true,
-    });
+/** Writes the commented example to the config page, which becomes editable by moderators only. */
+export async function installConfigPage(page: ConfigPage): Promise<void> {
+    await page.install(CONFIG_PAGE_TEMPLATE);
 }

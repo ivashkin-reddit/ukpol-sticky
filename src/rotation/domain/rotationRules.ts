@@ -1,6 +1,5 @@
 import { addHours } from "date-fns";
-import { getSchedule } from "../configuration/index.js";
-import type { Schedule, ThreadConfig } from "../configuration/index.js";
+import type { Schedule, ThreadConfig } from "../../configuration/index.js";
 
 // A daily live post created less than this many hours before today's post time runs until tomorrow's.
 const MIN_HOURS_BEFORE_DAILY_ROTATION = 6;
@@ -36,11 +35,17 @@ export interface LivePostState {
     readonly numberOfComments: number;
 }
 
+/** What makes a thread config's live post due for rotation: its schedule, if it has one, and its comment cap. */
+export interface RotationTriggers {
+    readonly schedule: Schedule | undefined;
+    readonly commentCap: number;
+}
+
 /** Whether a live post is due for rotation at `now`: its rotation time has passed, or it has reached its comment cap. */
-export function isDueForRotation(post: LivePostState, config: ThreadConfig, now: number): boolean {
-    const schedule = getSchedule(config);
+export function isDueForRotation(post: LivePostState, rotatesOn: RotationTriggers, now: number): boolean {
+    const { schedule } = rotatesOn;
     const pastRotationTime = schedule !== undefined && getRotationTime(post.createdAt, schedule).getTime() < now;
-    return pastRotationTime || post.numberOfComments >= config.maxComments;
+    return pastRotationTime || post.numberOfComments >= rotatesOn.commentCap;
 }
 
 /** The thread configs a refresh visits, in order: enabled ones only, sticky first, otherwise in config page order. */

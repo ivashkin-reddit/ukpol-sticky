@@ -27,7 +27,8 @@ export const tests = defineConfig({
         "vitest/prefer-to-be-truthy": "off",
         // Conflicts: prefer-importing-vitest-globals is on; tests import from "vitest" explicitly.
         "vitest/no-importing-vitest-globals": "off",
-        // Replaced in tests by vitest/unbound-method, which understands expect(mock.method) (per @vitest/eslint-plugin docs).
+        // Replaced in tests by vitest/unbound-method, which understands expect(mock.method) (per @vitest/eslint-plugin
+        // docs).
         "@typescript-eslint/unbound-method": "off",
         // Literal expected values are the content of a test; naming each one hides what is asserted.
         "@typescript-eslint/no-magic-numbers": "off",

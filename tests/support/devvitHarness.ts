@@ -4,8 +4,9 @@ import { redis } from "@devvit/redis";
 import { scheduler } from "@devvit/scheduler";
 import type { ScheduledJob } from "@devvit/scheduler";
 import { vi } from "vitest";
-import { REFRESH_JOB_NAME } from "../../src/rotation/index.js";
-import type { ManagedPost, RotationContext } from "../../src/rotation/index.js";
+import type { RotationContext } from "../../src/composition.js";
+import { REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
+import type { ManagedPost } from "../../src/rotation/index.js";
 
 /** createDevvitTest()'s default subreddit. */
 export const TEST_SUBREDDIT_ID = "t5_testsub";
@@ -21,7 +22,7 @@ const harnessReddit: RotationContext["reddit"] = {
         await reddit.submitPost(options),
 };
 
-/** The sticky manager's view of Devvit's in-memory test harness. */
+/** Devvit's in-memory test harness, as the composition root builds rotation ports from it. */
 export const HARNESS_CONTEXT: RotationContext = {
     reddit: harnessReddit,
     redis,

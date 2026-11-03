@@ -1,5 +1,6 @@
+import { configurationPorts, rotationPorts } from "./composition.js";
+import type { ConfigurationContext, RotationContext } from "./composition.js";
 import { applyConfigPageRevision, installConfigPage } from "./configuration/index.js";
-import type { ConfigPageInstallContext, ConfigPageRevisionContext } from "./configuration/index.js";
 import {
     forgetDeletedPost,
     refreshAllThreads,
@@ -7,10 +8,10 @@ import {
     rotateIfCapReached,
     scheduleNextRefresh,
 } from "./rotation/index.js";
-import type { LivePostCleanupContext, RefreshJobContext, RotationContext } from "./rotation/index.js";
 
-// Each handler adapts one Devvit trigger or scheduled job to the modules' interfaces. Trigger events are protobuf
-// messages, whose string fields default to "", so an empty string means the field is missing.
+// Each handler adapts one Devvit trigger or scheduled job to a module's use case, with ports from src/composition.ts.
+// Trigger events are protobuf messages, whose string fields default to "", so an empty string means the field is
+// missing.
 
 export type ModActionEvent = Readonly<{
     action?: string | undefined;
@@ -39,15 +40,15 @@ function getRevisingModerator(event: ModActionEvent): string | undefined {
 /** A wiki page was revised: newly stored thread configs are applied by a refresh shortly afterwards. */
 export async function onModAction(
     event: ModActionEvent,
-    context: ConfigPageRevisionContext & RefreshJobContext,
+    context: ConfigurationContext & RotationContext,
 ): Promise<void> {
     const moderatorName = getRevisingModerator(event);
     if (moderatorName === undefined) {
         return;
     }
 
-    if ((await applyConfigPageRevision(moderatorName, context)) === "stored") {
-        await requestRefresh(context);
+    if ((await applyConfigPageRevision(moderatorName, configurationPorts(context))) === "stored") {
+        await requestRefresh(rotationPorts(context).refreshJobs);
     }
 }
 
@@ -69,25 +70,22 @@ export async function onCommentCreate(
 ): Promise<void> {
     const postId = getCountedPostId(event, context.appSlug);
     if (postId !== undefined) {
-        await rotateIfCapReached(postId, context);
+        await rotateIfCapReached(postId, rotationPorts(context));
     }
 }
 
-export async function onPostDelete(
-    event: Readonly<{ postId: string }>,
-    context: LivePostCleanupContext,
-): Promise<void> {
-    await forgetDeletedPost(event.postId, context);
+export async function onPostDelete(event: Readonly<{ postId: string }>, context: RotationContext): Promise<void> {
+    await forgetDeletedPost(event.postId, rotationPorts(context).livePosts);
 }
 
-export async function onAppInstall(_event: unknown, context: ConfigPageInstallContext): Promise<void> {
-    await installConfigPage(context);
+export async function onAppInstall(_event: unknown, context: ConfigurationContext): Promise<void> {
+    await installConfigPage(configurationPorts(context).page);
 }
 
 export async function onAppUpgrade(_event: unknown, context: RotationContext): Promise<void> {
-    await scheduleNextRefresh(context);
+    await scheduleNextRefresh(rotationPorts(context));
 }
 
 export async function onRefreshJob(_event: unknown, context: RotationContext): Promise<void> {
-    await refreshAllThreads(context);
+    await refreshAllThreads(rotationPorts(context));
 }

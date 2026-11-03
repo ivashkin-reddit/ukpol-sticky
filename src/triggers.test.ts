@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { createConfigPageFakes } from "../tests/support/fakeConfigPageContext.js";
-import { createFakeRotationContext } from "../tests/support/fakeRotationContext.js";
+import { createFakeConfigurationPorts } from "../tests/support/fakeConfigurationPorts.js";
+import { createFakeDevvitContext } from "../tests/support/fakeDevvitContext.js";
+import type { FakeDevvitContext } from "../tests/support/fakeDevvitContext.js";
+import { createFakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
+import type { FakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
 import { silenceConsole } from "../tests/support/silenceConsole.js";
+import { configurationPorts, rotationPorts } from "./composition.js";
+import type * as Composition from "./composition.js";
 import { applyConfigPageRevision, installConfigPage } from "./configuration/index.js";
 import type * as Configuration from "./configuration/index.js";
-import type { ConfigPageOutcome, ConfigPageRevisionContext } from "./configuration/index.js";
+import type { ConfigPageOutcome, ConfigurationPorts } from "./configuration/index.js";
 import {
     forgetDeletedPost,
     refreshAllThreads,
@@ -13,9 +18,13 @@ import {
     scheduleNextRefresh,
 } from "./rotation/index.js";
 import type * as Rotation from "./rotation/index.js";
-import type { RefreshJobContext, RotationContext } from "./rotation/index.js";
 import { onAppInstall, onAppUpgrade, onCommentCreate, onModAction, onPostDelete, onRefreshJob } from "./triggers.js";
 import type { CommentCreateEvent, ModActionEvent } from "./triggers.js";
+
+vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
+    configurationPorts: vi.fn<typeof configurationPorts>(),
+    rotationPorts: vi.fn<typeof rotationPorts>(),
+}));
 
 vi.mock(import("./configuration/index.js"), (): Partial<typeof Configuration> => ({
     applyConfigPageRevision: vi.fn<typeof applyConfigPageRevision>(),
@@ -32,22 +41,29 @@ vi.mock(import("./rotation/index.js"), (): Partial<typeof Rotation> => ({
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
-const APP_SLUG = "ukpol-sticky";
 const WIKI_REVISION: ModActionEvent = { action: "wikirevise", moderator: { name: "mod_user" } };
 
-function modActionContext(): ConfigPageRevisionContext & RefreshJobContext {
-    return { ...createConfigPageFakes().context, scheduler: createFakeRotationContext().scheduler };
+interface Wiring {
+    readonly devvit: FakeDevvitContext;
+    readonly configuration: ConfigurationPorts;
+    readonly rotation: FakeRotationPorts;
 }
 
-function commentContext(): RotationContext & Readonly<{ appSlug: string }> {
-    return { ...createFakeRotationContext().context, appSlug: APP_SLUG };
+/** A Devvit context, with the composition root building fake ports from it. */
+function wired(): Wiring {
+    const devvit = createFakeDevvitContext();
+    const configuration = createFakeConfigurationPorts().ports;
+    const rotation = createFakeRotationPorts();
+    vi.mocked(configurationPorts).mockReturnValue(configuration);
+    vi.mocked(rotationPorts).mockReturnValue(rotation.ports);
+    return { devvit, configuration, rotation };
 }
 
 describe(onModAction, (): void => {
     it("ignores mod actions other than wiki revisions", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        await onModAction({ action: "approvelink", moderator: { name: "mod_user" } }, modActionContext());
+        await onModAction({ action: "approvelink", moderator: { name: "mod_user" } }, wired().devvit.context);
 
         expect(vi.mocked(applyConfigPageRevision)).not.toHaveBeenCalled();
     });
@@ -59,7 +75,7 @@ describe(onModAction, (): void => {
             expect.assertions(2);
 
             const errorSpy = silenceConsole("error");
-            await onModAction(event, modActionContext());
+            await onModAction(event, wired().devvit.context);
 
             expect(errorSpy).toHaveBeenCalledExactlyOnceWith("Moderator name is missing in the event.");
             expect(vi.mocked(applyConfigPageRevision)).not.toHaveBeenCalled();
@@ -67,17 +83,19 @@ describe(onModAction, (): void => {
     );
 
     it(
-        "applies the revision and requests a refresh when it stored new thread configs",
+        "applies the revision with ports built from its context, then requests a refresh once it stored thread configs",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(2);
+            expect.assertions(4);
 
-            const context = modActionContext();
+            const { devvit, configuration, rotation } = wired();
             vi.mocked(applyConfigPageRevision).mockResolvedValue("stored");
-            await onModAction(WIKI_REVISION, context);
+            await onModAction(WIKI_REVISION, devvit.context);
 
-            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith("mod_user", context);
-            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(context);
+            expect(vi.mocked(configurationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
+            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith("mod_user", configuration);
+            expect(vi.mocked(rotationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
+            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
         },
     );
 
@@ -88,7 +106,7 @@ describe(onModAction, (): void => {
             expect.assertions(1);
 
             vi.mocked(applyConfigPageRevision).mockResolvedValue(outcome);
-            await onModAction(WIKI_REVISION, modActionContext());
+            await onModAction(WIKI_REVISION, wired().devvit.context);
 
             expect(vi.mocked(requestRefresh)).not.toHaveBeenCalled();
         },
@@ -103,7 +121,7 @@ describe(onCommentCreate, (): void => {
             expect.assertions(2);
 
             const errorSpy = silenceConsole("error");
-            await onCommentCreate(event, commentContext());
+            await onCommentCreate(event, wired().devvit.context);
 
             expect(errorSpy).toHaveBeenCalledExactlyOnceWith("CommentCreate event does not contain a post ID.");
             expect(vi.mocked(rotateIfCapReached)).not.toHaveBeenCalled();
@@ -113,7 +131,8 @@ describe(onCommentCreate, (): void => {
     it("ignores the app's own comments", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        await onCommentCreate({ author: { name: APP_SLUG }, post: { id: "t3_alpha" } }, commentContext());
+        const { devvit } = wired();
+        await onCommentCreate({ author: { name: devvit.context.appSlug }, post: { id: "t3_alpha" } }, devvit.context);
 
         expect(vi.mocked(rotateIfCapReached)).not.toHaveBeenCalled();
     });
@@ -121,10 +140,10 @@ describe(onCommentCreate, (): void => {
     it("checks the commented post against its comment cap", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const context = commentContext();
-        await onCommentCreate({ author: { name: "someone" }, post: { id: "t3_alpha" } }, context);
+        const { devvit, rotation } = wired();
+        await onCommentCreate({ author: { name: "someone" }, post: { id: "t3_alpha" } }, devvit.context);
 
-        expect(vi.mocked(rotateIfCapReached)).toHaveBeenCalledExactlyOnceWith("t3_alpha", context);
+        expect(vi.mocked(rotateIfCapReached)).toHaveBeenCalledExactlyOnceWith("t3_alpha", rotation.ports);
     });
 });
 
@@ -132,43 +151,36 @@ describe("lifecycle and job triggers", (): void => {
     it("forgets a deleted post", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const { context } = createFakeRotationContext();
-        await onPostDelete({ postId: "t3_alpha" }, context);
+        const { devvit, rotation } = wired();
+        await onPostDelete({ postId: "t3_alpha" }, devvit.context);
 
-        expect(vi.mocked(forgetDeletedPost)).toHaveBeenCalledExactlyOnceWith("t3_alpha", context);
+        expect(vi.mocked(forgetDeletedPost)).toHaveBeenCalledExactlyOnceWith("t3_alpha", rotation.ports.livePosts);
     });
 
     it("installs the config page on install", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const context = {
-            reddit: {
-                getCurrentSubredditName: vi.fn<() => Promise<string>>(),
-                updateWikiPage: vi.fn<Configuration.ConfigPageInstallContext["reddit"]["updateWikiPage"]>(),
-                updateWikiPageSettings:
-                    vi.fn<Configuration.ConfigPageInstallContext["reddit"]["updateWikiPageSettings"]>(),
-            },
-        };
-        await onAppInstall({}, context);
+        const { devvit, configuration } = wired();
+        await onAppInstall({}, devvit.context);
 
-        expect(vi.mocked(installConfigPage)).toHaveBeenCalledExactlyOnceWith(context);
+        expect(vi.mocked(installConfigPage)).toHaveBeenCalledExactlyOnceWith(configuration.page);
     });
 
     it("schedules the next refresh on upgrade", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const { context } = createFakeRotationContext();
-        await onAppUpgrade({}, context);
+        const { devvit, rotation } = wired();
+        await onAppUpgrade({}, devvit.context);
 
-        expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(context);
+        expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
     });
 
     it("refreshes every thread when the refresh job runs", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const { context } = createFakeRotationContext();
-        await onRefreshJob({}, context);
+        const { devvit, rotation } = wired();
+        await onRefreshJob({}, devvit.context);
 
-        expect(vi.mocked(refreshAllThreads)).toHaveBeenCalledExactlyOnceWith(context);
+        expect(vi.mocked(refreshAllThreads)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
     });
 });

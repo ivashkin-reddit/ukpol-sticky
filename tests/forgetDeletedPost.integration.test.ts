@@ -1,5 +1,6 @@
 import { redis } from "@devvit/redis";
 import { describe, expect } from "vitest";
+import { rotationPorts } from "../src/composition.js";
 import { forgetDeletedPost } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
@@ -18,7 +19,7 @@ describe(forgetDeletedPost, (): void => {
             await redis.set("CommentCap:t3_alpha", "150");
             await redis.set("CommentCap:t3_beta", "250");
 
-            await forgetDeletedPost("t3_alpha", HARNESS_CONTEXT);
+            await forgetDeletedPost("t3_alpha", rotationPorts(HARNESS_CONTEXT).livePosts);
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
             await expect(redis.get("CommentCap:t3_alpha")).resolves.toBeUndefined();
@@ -32,7 +33,7 @@ describe(forgetDeletedPost, (): void => {
         await redis.hSet("StickyPostStore", { beta: "t3_beta" });
         await redis.set("CommentCap:t3_other", "100");
 
-        await forgetDeletedPost("t3_other", HARNESS_CONTEXT);
+        await forgetDeletedPost("t3_other", rotationPorts(HARNESS_CONTEXT).livePosts);
 
         await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ beta: "t3_beta" });
         await expect(redis.get("CommentCap:t3_other")).resolves.toBe("100");

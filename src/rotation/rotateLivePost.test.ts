@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { freezeTime } from "../../tests/support/fakeClock.js";
-import { createFakePost, createFakeRotationContext } from "../../tests/support/fakeRotationContext.js";
-import type { FakePost, FakeRotationContext } from "../../tests/support/fakeRotationContext.js";
+import { createFakePost, createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
+import type { FakePost, FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import { rotateLivePost } from "./rotation.js";
 
@@ -19,15 +19,15 @@ const ROTATING_CONFIG: ThreadConfig = {
 };
 
 interface Rotation {
-    readonly fakes: FakeRotationContext;
+    readonly fakes: FakeRotationPorts;
     readonly oldPost: FakePost;
     readonly replacement: FakePost;
 }
 
-async function rotate(config: ThreadConfig, subredditName?: string): Promise<Rotation> {
+async function rotate(config: ThreadConfig): Promise<Rotation> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    const fakes = createFakeRotationContext(subredditName);
+    const fakes = createFakeRotationPorts();
     const oldPost = createFakePost({
         body: "Old body",
         createdAt: new Date("2026-04-20T10:00:00Z"),
@@ -42,9 +42,9 @@ async function rotate(config: ThreadConfig, subredditName?: string): Promise<Rot
         numberOfComments: 0,
         stickied: false,
     });
-    fakes.reddit.submitPost.mockResolvedValue(replacement.post);
+    fakes.posts.publish.mockResolvedValue(replacement.post);
 
-    await rotateLivePost(oldPost.post, config, fakes.context);
+    await rotateLivePost(oldPost.post, config, fakes.ports);
     return { fakes, oldPost, replacement };
 }
 
@@ -55,7 +55,7 @@ describe(rotateLivePost, (): void => {
         async (): Promise<void> => {
             expect.assertions(4);
 
-            const { oldPost } = await rotate(ROTATING_CONFIG, "ukpolitics");
+            const { oldPost } = await rotate(ROTATING_CONFIG);
 
             expect(oldPost.unsticky).toHaveBeenCalledExactlyOnceWith();
             expect(oldPost.addComment).toHaveBeenCalledExactlyOnceWith({ text: "Thread closed" });
@@ -65,40 +65,30 @@ describe(rotateLivePost, (): void => {
     );
 
     it(
-        "submits the replacement to the configured subreddit with the dated title, then distinguishes and stickies it",
+        "publishes the replacement with the dated title, then distinguishes and stickies it",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(4);
+            expect.assertions(3);
 
-            const { fakes, replacement } = await rotate(ROTATING_CONFIG, "ukpolitics");
+            const { fakes, replacement } = await rotate(ROTATING_CONFIG);
 
-            expect(fakes.reddit.submitPost).toHaveBeenCalledExactlyOnceWith({
+            expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({
                 title: "Daily thread 2026-04-21",
-                text: "Replacement body",
-                subredditName: "ukpolitics",
+                body: "Replacement body",
             });
-            expect(fakes.reddit.getCurrentSubredditName).not.toHaveBeenCalled();
             expect(replacement.distinguish).toHaveBeenCalledExactlyOnceWith();
             expect(replacement.sticky).toHaveBeenCalledExactlyOnceWith();
         },
     );
 
-    it(
-        "records the replacement as the live post and stores its comment cap for 28 days",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(2);
+    it("records the replacement as the live post and stores its comment cap", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
 
-            const { fakes } = await rotate(ROTATING_CONFIG, "ukpolitics");
+        const { fakes } = await rotate(ROTATING_CONFIG);
 
-            expect(fakes.redis.hSet).toHaveBeenCalledExactlyOnceWith("StickyPostStore", {
-                "daily-thread": "t3_replacement",
-            });
-            expect(fakes.redis.set).toHaveBeenCalledExactlyOnceWith("CommentCap:t3_replacement", "200", {
-                expiration: new Date("2026-05-19T10:00:00.000Z"),
-            });
-        },
-    );
+        expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("daily-thread", "t3_replacement");
+        expect(fakes.livePosts.storeCommentCap).toHaveBeenCalledExactlyOnceWith("t3_replacement", 200);
+    });
 
     it(
         "leaves the old post open and the replacement unstickied when those keys were left empty",
@@ -106,10 +96,12 @@ describe(rotateLivePost, (): void => {
         async (): Promise<void> => {
             expect.assertions(3);
 
-            const { oldPost, replacement } = await rotate(
-                { ...ROTATING_CONFIG, endNote: null, lockOnRefresh: null, sticky: null },
-                "ukpolitics",
-            );
+            const { oldPost, replacement } = await rotate({
+                ...ROTATING_CONFIG,
+                endNote: null,
+                lockOnRefresh: null,
+                sticky: null,
+            });
 
             expect(oldPost.addComment).not.toHaveBeenCalled();
             expect(oldPost.lock).not.toHaveBeenCalled();
@@ -120,21 +112,8 @@ describe(rotateLivePost, (): void => {
     it("adds no comment for an empty end note", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const { oldPost } = await rotate({ ...ROTATING_CONFIG, endNote: "" }, "ukpolitics");
+        const { oldPost } = await rotate({ ...ROTATING_CONFIG, endNote: "" });
 
         expect(oldPost.addComment).not.toHaveBeenCalled();
-    });
-
-    it("submits to the current subreddit when the context names none", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(2);
-
-        const { fakes } = await rotate(ROTATING_CONFIG);
-
-        expect(fakes.reddit.getCurrentSubredditName).toHaveBeenCalledExactlyOnceWith();
-        expect(fakes.reddit.submitPost).toHaveBeenCalledExactlyOnceWith({
-            title: "Daily thread 2026-04-21",
-            text: "Replacement body",
-            subredditName: "currentsub",
-        });
     });
 });

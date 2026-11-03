@@ -1,9 +1,11 @@
 import { redis } from "@devvit/redis";
 import { scheduler } from "@devvit/scheduler";
 import { describe, expect, vi } from "vitest";
+import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
 import type { ThreadConfig } from "../src/configuration/index.js";
-import { REFRESH_JOB_NAME, scheduleNextRefresh } from "../src/rotation/index.js";
+import { REFRESH_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
+import { scheduleNextRefresh } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -57,7 +59,7 @@ describe(scheduleNextRefresh, (): void => {
 
             freezeTime("2026-04-21T10:00:00Z");
             const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            await storeThreadConfigs(HARNESS_CONTEXT, [DAILY_CONFIG, WEEKLY_CONFIG, CAP_CONFIG]);
+            await storeThreadConfigs([DAILY_CONFIG, WEEKLY_CONFIG, CAP_CONFIG], configReadPorts(HARNESS_CONTEXT).store);
             await redis.hSet("StickyPostStore", {
                 "daily-thread": await submitPostAt("2026-04-21T05:00:00Z", "Daily thread", "Daily body"),
                 "weekly-thread": await submitPostAt("2026-04-15T09:00:00Z", "Weekly thread", "Weekly body"),
@@ -67,7 +69,7 @@ describe(scheduleNextRefresh, (): void => {
             await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt: new Date("2026-04-21T09:30:00Z") });
             await scheduler.runJob({ name: "keep-me", runAt: new Date("2026-04-22T00:00:00Z") });
 
-            await scheduleNextRefresh(HARNESS_CONTEXT);
+            await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
             await expect(jobNames()).resolves.toContain("keep-me");
@@ -82,14 +84,14 @@ describe(scheduleNextRefresh, (): void => {
 
         freezeTime("2026-04-21T10:00:00Z");
         const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        await storeThreadConfigs(HARNESS_CONTEXT, [CAP_CONFIG]);
+        await storeThreadConfigs([CAP_CONFIG], configReadPorts(HARNESS_CONTEXT).store);
         await redis.hSet("StickyPostStore", {
             "cap-thread": await submitPostAt("2026-04-21T07:00:00Z", "Cap thread", "Cap body"),
         });
         await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt: new Date("2026-04-21T14:00:00Z") });
         await scheduler.runJob({ name: "keep-me", runAt: new Date("2026-04-22T00:00:00Z") });
 
-        await scheduleNextRefresh(HARNESS_CONTEXT);
+        await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
 
         await expect(refreshJobTimes()).resolves.toStrictEqual([]);
         await expect(jobNames()).resolves.toStrictEqual(["keep-me"]);
@@ -101,13 +103,13 @@ describe(scheduleNextRefresh, (): void => {
 
         freezeTime("2026-04-21T10:00:00Z");
         vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        await storeThreadConfigs(HARNESS_CONTEXT, [{ ...DAILY_CONFIG, postTime: "04:00" }]);
+        await storeThreadConfigs([{ ...DAILY_CONFIG, postTime: "04:00" }], configReadPorts(HARNESS_CONTEXT).store);
         await redis.hSet("StickyPostStore", {
             "daily-thread": await submitPostAt("2026-04-19T08:00:00Z", "Daily thread", "Daily body"),
         });
         vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
 
-        await scheduleNextRefresh(HARNESS_CONTEXT);
+        await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
 
         await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:05.000Z"]);
     });

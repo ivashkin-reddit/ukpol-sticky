@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createConfigPageFakes } from "../../tests/support/fakeConfigPageContext.js";
+import { createFakeConfigurationPorts } from "../../tests/support/fakeConfigurationPorts.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { applyConfigPageRevision } from "./configPageRevision.js";
 
@@ -122,20 +122,21 @@ const PROBLEM_CASES: readonly ProblemCase[] = [
 
 describe("applyConfigPageRevision with an invalid config page", (): void => {
     it.for(PROBLEM_CASES)(
-        "reports $problem to modmail and keeps the stored config",
+        "alerts moderators to $problem and keeps the stored thread configs",
         TEST_OPTIONS,
         async (problemCase: ProblemCase): Promise<void> => {
             expect.assertions(4);
 
             const errorSpy = silenceConsole("error");
-            const fakes = createConfigPageFakes({ pageContent: problemCase.pageContent });
+            const fakes = createFakeConfigurationPorts({ pageContent: problemCase.pageContent });
 
-            await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("rejected");
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("rejected");
 
-            expect(fakes.createModInboxConversation.mock.lastCall).toStrictEqual([
-                { subredditId: "t5_testsub", subject: problemCase.subject, bodyMarkdown: problemCase.bodyMarkdown },
-            ]);
-            expect(fakes.redisSet).not.toHaveBeenCalled();
+            expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith({
+                subject: problemCase.subject,
+                bodyMarkdown: problemCase.bodyMarkdown,
+            });
+            expect(fakes.store.writeConfigs).not.toHaveBeenCalled();
             expect(errorSpy.mock.calls).toStrictEqual(problemCase.errorLogs);
         },
     );

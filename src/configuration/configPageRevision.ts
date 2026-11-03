@@ -1,29 +1,13 @@
 import json2md from "json2md";
 import { compact } from "lodash";
 import { parseAllDocuments } from "yaml";
-import { notifyModerators } from "../notifications/index.js";
-import type { ModeratorAlert, NotificationContext } from "../notifications/index.js";
-import { getSubredditName } from "../platform/index.js";
-import type { RedisPort, SubredditNamePort } from "../platform/index.js";
-import { storeThreadConfigs } from "./configStore.js";
-import { checkThreadConfigs, CONFIG_PAGE } from "./threadConfig.js";
-import type { ConfigProblem, ThreadConfig } from "./threadConfig.js";
+import type { ModeratorAlert } from "../notifications/index.js";
+import { checkThreadConfigs, CONFIG_PAGE } from "./domain/threadConfig.js";
+import type { ConfigProblem, ThreadConfig } from "./domain/threadConfig.js";
+import type { ConfigPageRevision, ConfigurationPorts } from "./ports.js";
+import { storeThreadConfigs } from "./storedConfigs.js";
 
-// Live state in every installed subreddit: the config page revision whose thread configs were last accepted.
-const LAST_REVISION_KEY = "LastRevision";
 const KEEPING_EXISTING_CONFIG = "The existing config will be used until the issue is resolved.";
-
-interface WikiRevision {
-    readonly content: string;
-    readonly revisionId: string;
-}
-
-export type ConfigPageRevisionContext = NotificationContext &
-    SubredditNamePort &
-    Readonly<{
-        redis: RedisPort<"del" | "get" | "set">;
-        reddit: Readonly<{ getWikiPage: (subredditName: string, page: string) => Promise<WikiRevision> }>;
-    }>;
 
 /** What became of a config page revision: its thread configs were stored, or why they were not. */
 export type ConfigPageOutcome = "rejected" | "stored" | "unavailable" | "unchanged";
@@ -112,68 +96,54 @@ function checkConfigPage(content: string, moderatorName: string, subredditName: 
     return check;
 }
 
-async function fetchConfigPage(
-    context: ConfigPageRevisionContext,
-    subredditName: string,
-): Promise<WikiRevision | undefined> {
-    try {
-        return await context.reddit.getWikiPage(subredditName, CONFIG_PAGE);
-    } catch (error: unknown) {
-        console.error(`Failed to fetch wiki page ${CONFIG_PAGE} in subreddit ${subredditName}:`, error);
-        return undefined;
+type RevisionRead =
+    Readonly<{ kind: "new"; revision: ConfigPageRevision }> | Readonly<{ kind: "unavailable" | "unchanged" }>;
+
+/** Reads the config page, telling apart a revision not yet accepted from one already accepted or a failed read. */
+async function readNewRevision(ports: Pick<ConfigurationPorts, "page" | "store">): Promise<RevisionRead> {
+    const acceptedRevision = await ports.store.readAcceptedRevision();
+    const revision = await ports.page.read();
+    if (revision === undefined) {
+        return { kind: "unavailable" };
     }
+
+    if (revision.revisionId === acceptedRevision) {
+        console.log(`No changes detected in wiki page ${CONFIG_PAGE} in subreddit ${revision.subredditName}.`);
+        return { kind: "unchanged" };
+    }
+
+    return { kind: "new", revision };
+}
+
+async function acceptRevision(
+    revision: ConfigPageRevision,
+    configs: readonly ThreadConfig[],
+    store: ConfigurationPorts["store"],
+): Promise<void> {
+    await store.writeAcceptedRevision(revision.revisionId);
+    await storeThreadConfigs(configs, store);
 }
 
 /**
  * Reads the config page after a moderator revised it. A revision not yet accepted is checked: its thread configs are
  * stored, or the moderator is alerted to the first config problem and the previously stored configs stay in force.
  */
-type RevisionRead =
-    | Readonly<{ kind: "new"; revision: WikiRevision; subredditName: string }>
-    | Readonly<{ kind: "unavailable" | "unchanged" }>;
-
-/** Fetches the config page, telling apart a revision not yet accepted from one already accepted or a failed fetch. */
-async function readNewRevision(context: ConfigPageRevisionContext): Promise<RevisionRead> {
-    const lastRevision = await context.redis.get(LAST_REVISION_KEY);
-    const subredditName = await getSubredditName(context);
-    const revision = await fetchConfigPage(context, subredditName);
-    if (revision === undefined) {
-        return { kind: "unavailable" };
-    }
-
-    if (revision.revisionId === lastRevision) {
-        console.log(`No changes detected in wiki page ${CONFIG_PAGE} in subreddit ${subredditName}.`);
-        return { kind: "unchanged" };
-    }
-
-    return { kind: "new", revision, subredditName };
-}
-
-async function acceptRevision(
-    context: ConfigPageRevisionContext,
-    revisionId: string,
-    configs: readonly ThreadConfig[],
-): Promise<void> {
-    await context.redis.set(LAST_REVISION_KEY, revisionId);
-    await storeThreadConfigs(context, configs);
-}
-
 export async function applyConfigPageRevision(
     moderatorName: string,
-    context: ConfigPageRevisionContext,
+    ports: ConfigurationPorts,
 ): Promise<ConfigPageOutcome> {
-    const read = await readNewRevision(context);
+    const read = await readNewRevision(ports);
     if (read.kind !== "new") {
         return read.kind;
     }
 
-    const { revision, subredditName } = read;
-    const check = checkConfigPage(revision.content, moderatorName, subredditName);
+    const { revision } = read;
+    const check = checkConfigPage(revision.content, moderatorName, revision.subredditName);
     if (check.kind === "invalid") {
-        await notifyModerators(context, check.alert);
+        await ports.notifyModerators(check.alert);
         return "rejected";
     }
 
-    await acceptRevision(context, revision.revisionId, check.configs);
+    await acceptRevision(revision, check.configs, ports.store);
     return "stored";
 }

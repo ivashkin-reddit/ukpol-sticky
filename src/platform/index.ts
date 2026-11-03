@@ -1,7 +1,7 @@
 import type { RedisClient, Scheduler as DevvitScheduler } from "@devvit/public-api";
 
-// Each handler declares only the parts of Devvit's context it uses. Devvit's real context satisfies these types,
-// and tests supply exact typed fakes for them.
+// The parts of Devvit's context that adapters use. Each adapter declares only the methods it calls; Devvit's real
+// context satisfies these types, and tests supply exact typed fakes for them.
 
 export type RedisPort<Method extends keyof RedisClient> = Readonly<Pick<RedisClient, Method>>;
 

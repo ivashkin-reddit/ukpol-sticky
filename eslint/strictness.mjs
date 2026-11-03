@@ -146,8 +146,10 @@ export const strictness = defineConfig({
             "error",
             {
                 // WORKAROUND: Date parameters count as readonly
-                //   cause: Date is a mutable built-in (setHours and friends), so no Date parameter can be deeply readonly.
-                //   blocked: the immutable replacement, Temporal, is not in Devvit's ES2020 runtime or its TypeScript lib.
+                //   cause: Date is a mutable built-in (setHours and friends), so no Date parameter can be deeply
+                //     readonly.
+                //   blocked: the immutable replacement, Temporal, is not in Devvit's ES2020 runtime or its TypeScript
+                //     lib.
                 //   fix: carry instants as Temporal.Instant instead of Date.
                 //   until: Devvit's runtime and tsconfig lib include Temporal.
                 allow: [{ from: "lib", name: "Date" }],

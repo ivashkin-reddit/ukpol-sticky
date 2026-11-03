@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createConfigPageFakes } from "../../tests/support/fakeConfigPageContext.js";
+import { createFakeConfigurationPorts } from "../../tests/support/fakeConfigurationPorts.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { applyConfigPageRevision } from "./configPageRevision.js";
 
@@ -7,47 +7,41 @@ import { applyConfigPageRevision } from "./configPageRevision.js";
 const TEST_OPTIONS = { timeout: 1000 };
 
 describe(applyConfigPageRevision, (): void => {
-    it("logs and reports the page unavailable when it cannot be fetched", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(4);
+    it("reports the page unavailable when it cannot be read", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
 
-        const errorSpy = silenceConsole("error");
-        const pageError = new Error("wiki unavailable");
-        const fakes = createConfigPageFakes({ pageError });
+        const fakes = createFakeConfigurationPorts();
+        fakes.page.read.mockResolvedValue(undefined);
 
-        await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("unavailable");
-        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
-            "Failed to fetch wiki page stickymgr/config in subreddit testsub:",
-            pageError,
-        );
-        expect(fakes.redisSet).not.toHaveBeenCalled();
-        expect(fakes.createModInboxConversation).not.toHaveBeenCalled();
+        await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("unavailable");
+        expect(fakes.store.writeConfigs).not.toHaveBeenCalled();
+        expect(fakes.notifyModerators).not.toHaveBeenCalled();
     });
 
     it("logs and reports no change when the revision was already accepted", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(4);
+        expect.assertions(3);
 
         const logSpy = silenceConsole("log");
-        const fakes = createConfigPageFakes({ lastRevision: "rev-2" });
+        const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-2" });
 
-        await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("unchanged");
-        expect(fakes.redisGet).toHaveBeenCalledExactlyOnceWith("LastRevision");
+        await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("unchanged");
         expect(logSpy).toHaveBeenCalledExactlyOnceWith(
             "No changes detected in wiki page stickymgr/config in subreddit testsub.",
         );
-        expect(fakes.redisSet).not.toHaveBeenCalled();
+        expect(fakes.store.writeAcceptedRevision).not.toHaveBeenCalled();
     });
 
-    it("stores the revision's thread configs and records the revision", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(5);
+    it(
+        "records the revision, then stores its thread configs and releases the alert claim",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(5);
 
-        const fakes = createConfigPageFakes({ lastRevision: "rev-1" });
+            const fakes = createFakeConfigurationPorts({ acceptedRevision: "rev-1" });
 
-        await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("stored");
-        expect(fakes.redisSet).toHaveBeenNthCalledWith(1, "LastRevision", "rev-2");
-        expect(fakes.redisSet).toHaveBeenNthCalledWith(
-            2,
-            "Configuration",
-            JSON.stringify([
+            await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("stored");
+            expect(fakes.store.writeAcceptedRevision).toHaveBeenCalledExactlyOnceWith("rev-2");
+            expect(fakes.store.writeConfigs).toHaveBeenCalledExactlyOnceWith([
                 {
                     name: "daily-thread",
                     enabled: true,
@@ -58,16 +52,16 @@ describe(applyConfigPageRevision, (): void => {
                     maxComments: 200,
                     body: "Hello world\n",
                 },
-            ]),
-        );
-        expect(fakes.redisDel).toHaveBeenCalledExactlyOnceWith("UnreadableConfigAlertSent");
-        expect(fakes.createModInboxConversation).not.toHaveBeenCalled();
-    });
+            ]);
+            expect(fakes.store.writeAcceptedRevision).toHaveBeenCalledBefore(fakes.store.writeConfigs);
+            expect(fakes.store.releaseUnreadableAlert).toHaveBeenCalledExactlyOnceWith();
+        },
+    );
 
     it("stores keys left empty in YAML as null", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(2);
 
-        const fakes = createConfigPageFakes({
+        const fakes = createFakeConfigurationPorts({
             pageContent: [
                 "name: cap-thread",
                 "enabled: true",
@@ -78,13 +72,9 @@ describe(applyConfigPageRevision, (): void => {
             ].join("\n"),
         });
 
-        await expect(applyConfigPageRevision("mod_user", fakes.context)).resolves.toBe("stored");
-        expect(fakes.redisSet).toHaveBeenNthCalledWith(
-            2,
-            "Configuration",
-            JSON.stringify([
-                { name: "cap-thread", enabled: true, title: "Cap", maxComments: 5, body: "b", endNote: null },
-            ]),
-        );
+        await expect(applyConfigPageRevision("mod_user", fakes.ports)).resolves.toBe("stored");
+        expect(fakes.store.writeConfigs).toHaveBeenCalledExactlyOnceWith([
+            { name: "cap-thread", enabled: true, title: "Cap", maxComments: 5, body: "b", endNote: null },
+        ]);
     });
 });

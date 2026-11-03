@@ -2,6 +2,7 @@ import { asT3ID } from "@devvit/public-api/types/tid.js";
 import { reddit } from "@devvit/reddit";
 import { redis } from "@devvit/redis";
 import { describe, expect, vi } from "vitest";
+import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
 import type { ThreadConfig } from "../src/configuration/index.js";
 import { refreshAllThreads } from "../src/rotation/index.js";
@@ -31,7 +32,7 @@ async function refreshJobTimes(): Promise<string[]> {
 async function submitActivePost(configs: readonly ThreadConfig[], body: string): Promise<string> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    await storeThreadConfigs(HARNESS_CONTEXT, configs);
+    await storeThreadConfigs(configs, configReadPorts(HARNESS_CONTEXT).store);
     const activePostId = await submitPostAt("2026-04-21T05:00:00Z", "Active thread", body);
     vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
     return activePostId;
@@ -48,7 +49,7 @@ describe(refreshAllThreads, (): void => {
             await redis.hSet("StickyPostStore", { "active-thread": activePostId, "stale-thread": "t3_stale" });
             await redis.set("CommentCap:t3_stale", "150");
 
-            await refreshAllThreads(HARNESS_CONTEXT);
+            await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
             await expect(redis.get("CommentCap:t3_stale")).resolves.toBeUndefined();
@@ -63,7 +64,7 @@ describe(refreshAllThreads, (): void => {
         const activePostId = await submitActivePost([{ ...ACTIVE_CONFIG, body: "Updated body" }], "Old body");
         await redis.hSet("StickyPostStore", { "active-thread": activePostId });
 
-        await refreshAllThreads(HARNESS_CONTEXT);
+        await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
 
         await expect(reddit.getPostById(asT3ID(activePostId))).resolves.toHaveProperty("body", "Updated body");
         await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
@@ -90,7 +91,7 @@ describe(refreshAllThreads, (): void => {
             await redis.hSet("StickyPostStore", { "active-thread": activePostId, "disabled-thread": disabledPostId });
             await redis.set(`CommentCap:${disabledPostId}`, "150");
 
-            await refreshAllThreads(HARNESS_CONTEXT);
+            await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
 
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "active-thread": activePostId });
             await expect(redis.get(`CommentCap:${disabledPostId}`)).resolves.toBeUndefined();

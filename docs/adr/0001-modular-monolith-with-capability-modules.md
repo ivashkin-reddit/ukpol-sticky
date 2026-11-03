@@ -1,3 +1,7 @@
+---
+status: accepted; its seam policy (no interfaces over Redis or the scheduler) is superseded by ADR-0002
+---
+
 # A modular monolith: one bounded context, split into capability modules
 
 The app is one Devvit deployment, organised as modules with one-way dependencies. Its domain is a single bounded context, managed threads ([CONTEXT.md](../../CONTEXT.md)). Configuration and rotation are capability modules within that context, not separate contexts: a thread config's schedule and comment cap mean the same thing to both, so a translation between them would map each term onto itself. Notifications is a generic capability. It delivers moderator alerts and knows nothing of managed threads.

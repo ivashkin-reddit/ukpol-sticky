@@ -1,62 +1,32 @@
 import { addSeconds } from "date-fns";
-import { getSchedule, getThreadConfigs, renderTitle } from "../configuration/index.js";
-import type { ConfigReadContext, ThreadConfig } from "../configuration/index.js";
-import { getSubredditName } from "../platform/index.js";
-import type { RedisPort, SubredditNamePort } from "../platform/index.js";
-import {
-    findConfigNameOfLivePost,
-    forgetLivePosts,
-    getCommentCap,
-    getConfigNamesWithLivePosts,
-    getLivePostId,
-    getLivePostIds,
-    setLivePost,
-    storeCommentCap,
-} from "./livePosts.js";
-import type { LivePostCleanupContext } from "./livePosts.js";
-import { cancelRefreshJobs, scheduleRefresh } from "./refreshJob.js";
-import type { RefreshJobContext } from "./refreshJob.js";
-import { earliest, getRotationTime, isDueForRotation, refreshOrder } from "./rotationRules.js";
+import { getSchedule, renderTitle } from "../configuration/index.js";
+import type { ThreadConfig } from "../configuration/index.js";
+import { earliest, getRotationTime, isDueForRotation, refreshOrder } from "./domain/rotationRules.js";
+import type { LivePosts, ManagedPost, RefreshJobs, RotationPorts } from "./ports.js";
 
+// A refresh scheduled for a rotation time runs a few seconds after it, so the live post is due by then.
 const REFRESH_JOB_DELAY_SECONDS = 5;
+const REQUESTED_REFRESH_DELAY_SECONDS = 1;
 
-export interface ManagedComment {
-    readonly distinguish: (makeSticky?: boolean) => Promise<void>;
+function findConfigNameOfLivePost(livePostIds: Readonly<Record<string, string>>, postId: string): string | undefined {
+    return Object.entries(livePostIds).find(
+        ([, livePostId]: readonly [string, string]): boolean => livePostId === postId,
+    )?.[0];
 }
 
-/** The parts of a Devvit Post that rotation reads and calls. */
-export interface ManagedPost {
-    readonly id: string;
-    readonly createdAt: Date;
-    readonly numberOfComments: number;
-    readonly body?: string | undefined;
-    readonly stickied: boolean;
-    readonly addComment: (options: Readonly<{ text: string }>) => Promise<ManagedComment>;
-    readonly distinguish: () => Promise<void>;
-    readonly edit: (options: Readonly<{ text: string }>) => Promise<void>;
-    readonly lock: () => Promise<void>;
-    readonly sticky: () => Promise<void>;
-    readonly unsticky: () => Promise<void>;
+/** Stops recording the named thread configs' live posts and forgets their comment caps. */
+async function forgetLivePosts(configNames: readonly string[], livePosts: LivePosts): Promise<void> {
+    if (configNames.length === 0) {
+        return;
+    }
+
+    const livePostIds = await livePosts.all();
+    const postIds = configNames.flatMap((configName): string[] => {
+        const postId = livePostIds[configName];
+        return postId === undefined ? [] : [postId];
+    });
+    await livePosts.forget(configNames, postIds);
 }
-
-export type PublishContext = SubredditNamePort &
-    Readonly<{
-        redis: RedisPort<"hSet" | "set">;
-        reddit: Readonly<{
-            submitPost: (
-                options: Readonly<{ subredditName: string; text: string; title: string }>,
-            ) => Promise<ManagedPost>;
-        }>;
-    }>;
-
-export type RotationContext = ConfigReadContext &
-    LivePostCleanupContext &
-    PublishContext &
-    RefreshJobContext &
-    Readonly<{
-        redis: RedisPort<"get" | "hGet" | "hKeys">;
-        reddit: Readonly<{ getPostById: (id: string) => Promise<ManagedPost> }>;
-    }>;
 
 async function retireLivePost(post: ManagedPost, config: ThreadConfig): Promise<void> {
     if (post.stickied) {
@@ -77,32 +47,28 @@ async function retireLivePost(post: ManagedPost, config: ThreadConfig): Promise<
 export async function rotateLivePost(
     previousPost: ManagedPost | undefined,
     config: ThreadConfig,
-    context: PublishContext,
+    ports: Pick<RotationPorts, "livePosts" | "posts">,
 ): Promise<void> {
     if (previousPost !== undefined) {
         await retireLivePost(previousPost, config);
     }
 
-    const newPost = await context.reddit.submitPost({
-        title: renderTitle(config.title, new Date()),
-        text: config.body,
-        subredditName: await getSubredditName(context),
-    });
-
+    const newPost = await ports.posts.publish({ title: renderTitle(config.title, new Date()), body: config.body });
     await newPost.distinguish();
     if (config.sticky === true) {
         await newPost.sticky();
     }
 
-    await setLivePost(context, config.name, newPost.id);
-    await storeCommentCap(newPost.id, config.maxComments, context);
+    await ports.livePosts.set(config.name, newPost.id);
+    await ports.livePosts.storeCommentCap(newPost.id, config.maxComments);
     console.log(`Created new post for config ${config.name} with ID ${newPost.id}.`);
 }
 
 /** Rotates a live post that is due; otherwise brings its body up to date and renews its comment cap. */
-async function refreshLivePost(post: ManagedPost, config: ThreadConfig, context: RotationContext): Promise<void> {
-    if (isDueForRotation(post, config, Date.now())) {
-        await rotateLivePost(post, config, context);
+async function refreshLivePost(post: ManagedPost, config: ThreadConfig, ports: RotationPorts): Promise<void> {
+    const rotatesOn = { schedule: getSchedule(config), commentCap: config.maxComments };
+    if (isDueForRotation(post, rotatesOn, Date.now())) {
+        await rotateLivePost(post, config, ports);
         return;
     }
 
@@ -111,34 +77,34 @@ async function refreshLivePost(post: ManagedPost, config: ThreadConfig, context:
         await post.edit({ text: config.body });
     }
 
-    await storeCommentCap(post.id, config.maxComments, context);
+    await ports.livePosts.storeCommentCap(post.id, config.maxComments);
 }
 
-async function refreshThread(config: ThreadConfig, context: RotationContext): Promise<void> {
-    const postId = await getLivePostId(context, config.name);
+async function refreshThread(config: ThreadConfig, ports: RotationPorts): Promise<void> {
+    const postId = await ports.livePosts.get(config.name);
     if (postId === undefined) {
-        await rotateLivePost(undefined, config, context);
+        await rotateLivePost(undefined, config, ports);
         return;
     }
 
-    await refreshLivePost(await context.reddit.getPostById(postId), config, context);
+    await refreshLivePost(await ports.posts.get(postId), config, ports);
 }
 
 // Sticky posts take Reddit's sticky slots in the order they are stickied, and each rotation unstickies the old live
 // post before stickying its replacement, so thread configs refresh one at a time, in order.
-async function refreshInOrder(configs: readonly ThreadConfig[], context: RotationContext): Promise<void> {
+async function refreshInOrder(configs: readonly ThreadConfig[], ports: RotationPorts): Promise<void> {
     const [first, ...rest] = configs;
     if (first === undefined) {
         return;
     }
 
-    await refreshThread(first, context);
-    await refreshInOrder(rest, context);
+    await refreshThread(first, ports);
+    await refreshInOrder(rest, ports);
 }
 
-async function findNextRotationTime(context: RotationContext): Promise<Date | undefined> {
-    const configs = (await getThreadConfigs(context)).filter((config): boolean => config.enabled);
-    const livePostIds = await getLivePostIds(context);
+async function findNextRotationTime(ports: RotationPorts): Promise<Date | undefined> {
+    const configs = (await ports.threadConfigs()).filter((config): boolean => config.enabled);
+    const livePostIds = await ports.livePosts.all();
     const rotationTimes = await Promise.all(
         configs.map(async (config): Promise<Date | undefined> => {
             const schedule = getSchedule(config);
@@ -147,7 +113,7 @@ async function findNextRotationTime(context: RotationContext): Promise<Date | un
                 return undefined;
             }
 
-            const post = await context.reddit.getPostById(postId);
+            const post = await ports.posts.get(postId);
             return getRotationTime(post.createdAt, schedule);
         }),
     );
@@ -156,28 +122,34 @@ async function findNextRotationTime(context: RotationContext): Promise<Date | un
 }
 
 /** Replaces any pending refresh with one shortly after the earliest rotation time of a scheduled live post. */
-export async function scheduleNextRefresh(context: RotationContext): Promise<void> {
+export async function scheduleNextRefresh(ports: RotationPorts): Promise<void> {
     // Read everything first, so thread configs that cannot be read fail before any pending refresh is cancelled.
-    const nextRotationTime = await findNextRotationTime(context);
-    await cancelRefreshJobs(context);
+    const nextRotationTime = await findNextRotationTime(ports);
+    await ports.refreshJobs.cancelAll();
     if (nextRotationTime === undefined) {
         console.log("No scheduled sticky post refreshes found.");
         return;
     }
 
     const refreshAt = new Date(Math.max(nextRotationTime.getTime(), Date.now()));
-    await scheduleRefresh(context, addSeconds(refreshAt, REFRESH_JOB_DELAY_SECONDS));
+    await ports.refreshJobs.scheduleAt(addSeconds(refreshAt, REFRESH_JOB_DELAY_SECONDS));
     console.log(`Scheduled next sticky post refresh at ${refreshAt.toISOString()}.`);
 }
 
-async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], context: RotationContext): Promise<void> {
-    const configNames = await getConfigNamesWithLivePosts(context);
+/** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */
+export async function requestRefresh(refreshJobs: RefreshJobs): Promise<void> {
+    await refreshJobs.cancelAll();
+    await refreshJobs.scheduleAt(addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS));
+}
+
+async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], livePosts: LivePosts): Promise<void> {
+    const configNames = await livePosts.configNames();
     const removedConfigNames = configNames.filter(
         (configName): boolean => !activeConfigs.some((config): boolean => config.name === configName),
     );
     if (removedConfigNames.length > 0) {
         console.log(`Removing stale sticky post configurations: ${removedConfigNames.join(", ")}`);
-        await forgetLivePosts(removedConfigNames, context);
+        await forgetLivePosts(removedConfigNames, livePosts);
     }
 }
 
@@ -185,45 +157,55 @@ async function forgetRemovedThreads(activeConfigs: readonly ThreadConfig[], cont
  * One refresh: every enabled thread config's live post is published, rotated or brought up to date, live posts of
  * removed or disabled thread configs are forgotten, and the next refresh is scheduled.
  */
-export async function refreshAllThreads(context: RotationContext): Promise<void> {
-    const configs = await getThreadConfigs(context);
+export async function refreshAllThreads(ports: RotationPorts): Promise<void> {
+    const configs = await ports.threadConfigs();
     if (configs.length === 0) {
         console.log("No sticky post configurations found.");
-        await forgetLivePosts(Object.keys(await getLivePostIds(context)), context);
+        await forgetLivePosts(Object.keys(await ports.livePosts.all()), ports.livePosts);
         return;
     }
 
     const activeConfigs = refreshOrder(configs);
-    await refreshInOrder(activeConfigs, context);
-    await scheduleNextRefresh(context);
-    await forgetRemovedThreads(activeConfigs, context);
+    await refreshInOrder(activeConfigs, ports);
+    await scheduleNextRefresh(ports);
+    await forgetRemovedThreads(activeConfigs, ports.livePosts);
 }
 
-async function refreshThreadOfLivePost(postId: string, context: RotationContext): Promise<void> {
-    const configName = findConfigNameOfLivePost(await getLivePostIds(context), postId);
+async function refreshThreadOfLivePost(postId: string, ports: RotationPorts): Promise<void> {
+    const configName = findConfigNameOfLivePost(await ports.livePosts.all(), postId);
     if (configName === undefined) {
         return;
     }
 
-    const config = (await getThreadConfigs(context)).find((candidate): boolean => candidate.name === configName);
+    const config = (await ports.threadConfigs()).find((candidate): boolean => candidate.name === configName);
     if (config === undefined) {
         return;
     }
 
-    await refreshThread(config, context);
-    await scheduleNextRefresh(context);
+    await refreshThread(config, ports);
+    await scheduleNextRefresh(ports);
 }
 
 /** After a comment on `postId`: if it is a live post that has reached its comment cap, its thread is rotated now. */
-export async function rotateIfCapReached(postId: string, context: RotationContext): Promise<void> {
-    const commentCap = await getCommentCap(postId, context);
+export async function rotateIfCapReached(postId: string, ports: RotationPorts): Promise<void> {
+    const commentCap = await ports.livePosts.getCommentCap(postId);
     if (commentCap === undefined) {
         return;
     }
 
-    const post = await context.reddit.getPostById(postId);
+    const post = await ports.posts.get(postId);
     if (post.numberOfComments >= commentCap) {
         console.log(`Post ${post.id} has reached the comment cap of ${String(commentCap)}.`);
-        await refreshThreadOfLivePost(postId, context);
+        await refreshThreadOfLivePost(postId, ports);
     }
+}
+
+/** A deleted post that was a live post stops being recorded, and its comment cap is forgotten. */
+export async function forgetDeletedPost(postId: string, livePosts: LivePosts): Promise<void> {
+    const configName = findConfigNameOfLivePost(await livePosts.all(), postId);
+    if (configName === undefined) {
+        return;
+    }
+
+    await livePosts.forget([configName], [postId]);
 }
