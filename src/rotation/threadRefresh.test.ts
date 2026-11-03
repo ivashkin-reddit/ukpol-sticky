@@ -4,7 +4,7 @@ import { createFakePost, findingPostsById } from "../../tests/support/fakePosts.
 import type { FakePost, FakePostFields } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
-import { COMMENT_CAP, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
+import { COMMENT_CAP, fullPost, newPost, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import type { Handover } from "./ports.js";
@@ -188,4 +188,50 @@ describe("refreshThread with a handover its rotation left unfinished", (): void 
             expect(fakes.threadLocks.unlock).toHaveBeenCalledExactlyOnceWith(RETIRING_CONFIG.name);
         },
     );
+});
+
+describe("refreshThread logging why it rotates", (): void => {
+    it("names the comment cap the live post has reached", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const logSpy = silenceConsole("log");
+        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        const full = fullPost("t3_full", COMMENT_CAP);
+        const next = newPost("t3_next");
+        fakes.livePosts.get.mockResolvedValue("t3_full");
+        fakes.posts.get.mockImplementation(findingPostsById([full.post, next.post]));
+        fakes.posts.publish.mockResolvedValue(next.post);
+
+        await refreshThread(STICKY_CONFIG, fakes.ports);
+
+        expect(logSpy).toHaveBeenCalledWith(
+            "Rotating thread config sticky-thread: replacing live post t3_full, which has reached its comment cap of 100.",
+        );
+    });
+
+    it("names the rotation time that has passed", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeTime("2026-04-21T12:30:00Z");
+        const logSpy = silenceConsole("log");
+        const daily: ThreadConfig = { ...STICKY_CONFIG, frequency: "daily", postTime: "12:00" };
+        const fakes = createFakeRotationPorts([daily]);
+        const live = createFakePost({
+            body: "Sticky body",
+            createdAt: new Date("2026-04-20T05:00:00Z"),
+            id: "t3_live",
+            numberOfComments: 10,
+            stickied: true,
+        });
+        const next = newPost("t3_next");
+        fakes.livePosts.get.mockResolvedValue("t3_live");
+        fakes.posts.get.mockImplementation(findingPostsById([live.post, next.post]));
+        fakes.posts.publish.mockResolvedValue(next.post);
+
+        await refreshThread(daily, fakes.ports);
+
+        expect(logSpy).toHaveBeenCalledWith(
+            "Rotating thread config sticky-thread: replacing live post t3_live, whose rotation time 2026-04-20T12:00:00.000Z has passed.",
+        );
+    });
 });

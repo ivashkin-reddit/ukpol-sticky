@@ -32,10 +32,10 @@ describe(scheduleNextRefresh, (): void => {
         "schedules a refresh at once while the thread configs in force are not the ones the last refresh applied",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(1);
+            expect.assertions(2);
 
             freezeTime("2026-04-21T10:00:00Z");
-            silenceConsole("log");
+            const logSpy = silenceConsole("log");
             const daily: ThreadConfig = {
                 name: "daily-thread",
                 enabled: true,
@@ -62,6 +62,9 @@ describe(scheduleNextRefresh, (): void => {
             await scheduleNextRefresh(fakes.ports);
 
             expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:00:05.000Z"));
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Next refresh scheduled for 2026-04-21T10:00:05.000Z: it applies thread configs stored since the last refresh.",
+            );
         },
     );
 });
@@ -87,39 +90,46 @@ describe(requestRefresh, (): void => {
 });
 
 describe("scheduleNextRefresh and the refresh status", (): void => {
-    it("records when the next refresh is due", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+    it(
+        "records when the next refresh is due, and logs the rotation it is for",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
 
-        freezeTime("2026-04-21T10:00:00Z");
-        silenceConsole("log");
-        const fakes = createFakeRotationPorts([
-            {
-                name: "daily-thread",
-                enabled: true,
-                title: "Daily",
-                frequency: "daily",
-                postTime: "12:30",
-                maxComments: 100,
-                body: "Body",
-            },
-        ]);
-        fakes.livePosts.all.mockResolvedValue({ "daily-thread": "t3_daily" });
-        fakes.posts.get.mockResolvedValue(
-            createFakePost({
-                body: "Body",
-                createdAt: new Date("2026-04-21T05:00:00Z"),
-                id: "t3_daily",
-                numberOfComments: 0,
-                stickied: true,
-            }).post,
-        );
+            freezeTime("2026-04-21T10:00:00Z");
+            const logSpy = silenceConsole("log");
+            const fakes = createFakeRotationPorts([
+                {
+                    name: "daily-thread",
+                    enabled: true,
+                    title: "Daily",
+                    frequency: "daily",
+                    postTime: "12:30",
+                    maxComments: 100,
+                    body: "Body",
+                },
+            ]);
+            fakes.livePosts.all.mockResolvedValue({ "daily-thread": "t3_daily" });
+            fakes.posts.get.mockResolvedValue(
+                createFakePost({
+                    body: "Body",
+                    createdAt: new Date("2026-04-21T05:00:00Z"),
+                    id: "t3_daily",
+                    numberOfComments: 0,
+                    stickied: true,
+                }).post,
+            );
 
-        await scheduleNextRefresh(fakes.ports);
+            await scheduleNextRefresh(fakes.ports);
 
-        expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith(
-            new Date("2026-04-21T12:30:05.000Z"),
-        );
-    });
+            expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith(
+                new Date("2026-04-21T12:30:05.000Z"),
+            );
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Next refresh scheduled for 2026-04-21T12:30:05.000Z: it rotates thread config daily-thread.",
+            );
+        },
+    );
 
     it(
         "records that no refresh is scheduled when no live post has a schedule",
@@ -142,10 +152,10 @@ describe("scheduleNextRefresh after thread configs failed", (): void => {
         "leaves their rotation times out and retries them fifteen minutes on, if that is sooner",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(1);
+            expect.assertions(2);
 
             freezeTime("2026-04-21T13:00:00Z");
-            silenceConsole("log");
+            const logSpy = silenceConsole("log");
             // The live post was due at 12:30, so without the retry the next refresh would be due now.
             const fakes = createFakeRotationPorts([
                 {
@@ -163,16 +173,19 @@ describe("scheduleNextRefresh after thread configs failed", (): void => {
             await scheduleNextRefresh(fakes.ports, ["daily-thread"]);
 
             expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T13:15:05.000Z"));
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Next refresh scheduled for 2026-04-21T13:15:05.000Z: it retries thread config daily-thread.",
+            );
         },
     );
 });
 
 describe("scheduleNextRefresh for a thread config without a live post", (): void => {
     it("schedules a refresh straight away to publish one", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+        expect.assertions(2);
 
         freezeTime("2026-04-21T10:00:00Z");
-        silenceConsole("log");
+        const logSpy = silenceConsole("log");
         // Saved while a refresh ran, say, so that refresh published nothing for it.
         const fakes = createFakeRotationPorts([
             { name: "new-thread", enabled: true, title: "New", maxComments: 100, body: "Body" },
@@ -181,6 +194,67 @@ describe("scheduleNextRefresh for a thread config without a live post", (): void
         await scheduleNextRefresh(fakes.ports);
 
         expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:00:05.000Z"));
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            "Next refresh scheduled for 2026-04-21T10:00:05.000Z: it publishes a live post for thread config new-thread.",
+        );
+    });
+});
+
+describe("scheduleNextRefresh naming everything the next refresh does", (): void => {
+    it("names each need due at once", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeTime("2026-04-21T10:00:00Z");
+        const logSpy = silenceConsole("log");
+        const fakes = createFakeRotationPorts([
+            { name: "first-thread", enabled: true, title: "First", maxComments: 100, body: "Body" },
+            { name: "second-thread", enabled: true, title: "Second", maxComments: 100, body: "Body" },
+        ]);
+        // Stored since the last refresh, which applied none.
+        await fakes.ports.appliedThreadConfigs.record([]);
+
+        await scheduleNextRefresh(fakes.ports);
+
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            "Next refresh scheduled for 2026-04-21T10:00:05.000Z: it applies thread configs stored since the last refresh; it publishes a live post for thread config first-thread; it publishes a live post for thread config second-thread.",
+        );
+    });
+
+    it("names each rotation at the same time, and none later", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeTime("2026-04-21T10:00:00Z");
+        const logSpy = silenceConsole("log");
+        const daily = (name: string, postTime: string): ThreadConfig => ({
+            name,
+            enabled: true,
+            title: name,
+            frequency: "daily",
+            postTime,
+            maxComments: 100,
+            body: "Body",
+        });
+        const fakes = createFakeRotationPorts([
+            daily("noon-a", "12:30"),
+            daily("noon-b", "12:30"),
+            daily("evening", "18:00"),
+        ]);
+        fakes.livePosts.all.mockResolvedValue({ "noon-a": "t3_a", "noon-b": "t3_b", "evening": "t3_c" });
+        fakes.posts.get.mockResolvedValue(
+            createFakePost({
+                body: "Body",
+                createdAt: new Date("2026-04-21T05:00:00Z"),
+                id: "t3_a",
+                numberOfComments: 0,
+                stickied: true,
+            }).post,
+        );
+
+        await scheduleNextRefresh(fakes.ports);
+
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            "Next refresh scheduled for 2026-04-21T12:30:05.000Z: it rotates thread config noon-a; it rotates thread config noon-b.",
+        );
     });
 });
 
