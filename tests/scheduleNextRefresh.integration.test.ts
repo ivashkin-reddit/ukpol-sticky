@@ -80,7 +80,9 @@ describe(scheduleNextRefresh, (): void => {
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
             await expect(jobNames()).resolves.toContain("keep-me");
-            expect(logSpy).toHaveBeenCalledExactlyOnceWith("Next refresh scheduled for 2026-04-21T12:30:05.000Z.");
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Next refresh scheduled for 2026-04-21T12:30:05.000Z: it rotates thread config daily-thread.",
+            );
         },
     );
 

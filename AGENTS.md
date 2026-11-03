@@ -45,6 +45,10 @@ These choices are deliberate. Revisit one only when the user asks:
 
 - Use `console.error` for a failure someone must look into, `console.warn` for bad input the app handled (a rejected config page revision, an event missing a field), and `console.log` for normal activity.
 - Write messages in CONTEXT.md's terms, and name the thread config and the post, revision or job involved.
+- The log stream is lossy: `devvit logs` can silently drop lines, as it did with a rotation's last two lines in November 2026. So:
+    - **The reason travels with the event.** A line carries what an operator needs to read it alone: a rotation names why it happened, and a scheduled refresh names what it is for.
+    - **Restate what monitoring relies on.** The hourly refresh check logs when the next refresh is due, so a lost scheduling line costs at most an hour.
+    - **A missing line proves nothing.** Confirm on Reddit, or in stored state, that a step happened or failed.
 - [src/main.ts](src/main.ts) registers every handler through `observed` ([src/observed.ts](src/observed.ts)), which logs each failure with the handler's name and duration. A handler that fires for every comment, post or mod action in the subreddit is registered as "failures only"; its use cases log what they change.
 
 ## Live state

@@ -4,7 +4,7 @@ import {
     earliest,
     getRotationTime,
     isClearlyBelowCommentCap,
-    isDueForRotation,
+    findRotationReason,
     refreshOrder,
 } from "./rotationRules.js";
 import type { RotationTriggers } from "./rotationRules.js";
@@ -131,33 +131,50 @@ describe("getRotationTime for daily schedules", (): void => {
     );
 });
 
-describe(isDueForRotation, (): void => {
+describe(findRotationReason, (): void => {
     const MORNING_POST = { createdAt: new Date("2026-04-21T05:00:00Z"), numberOfComments: 10 };
 
-    it("is not due before its rotation time and below its comment cap", TEST_OPTIONS, (): void => {
+    it("finds none before its rotation time and below its comment cap", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
-        expect(isDueForRotation(MORNING_POST, DAILY_AT_NOON, Date.parse("2026-04-21T11:59:00Z"))).toBe(false);
+        expect(findRotationReason(MORNING_POST, DAILY_AT_NOON, Date.parse("2026-04-21T11:59:00Z"))).toBeUndefined();
     });
 
-    it("is due once its rotation time has passed", TEST_OPTIONS, (): void => {
+    it("is the rotation time once it has passed", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
-        expect(isDueForRotation(MORNING_POST, DAILY_AT_NOON, Date.parse("2026-04-21T12:01:00Z"))).toBe(true);
+        expect(findRotationReason(MORNING_POST, DAILY_AT_NOON, Date.parse("2026-04-21T12:01:00Z"))).toStrictEqual({
+            kind: "rotation time",
+            rotationTime: new Date("2026-04-21T12:00:00Z"),
+        });
     });
 
-    it("is due at its comment cap, whatever its schedule", TEST_OPTIONS, (): void => {
+    it("is the comment cap once reached, whatever the schedule", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
         const fullPost = { ...MORNING_POST, numberOfComments: 100 };
 
-        expect(isDueForRotation(fullPost, CAP_ONLY, Date.parse("2026-04-21T06:00:00Z"))).toBe(true);
+        expect(findRotationReason(fullPost, CAP_ONLY, Date.parse("2026-04-21T06:00:00Z"))).toStrictEqual({
+            kind: "comment cap",
+            commentCap: 100,
+        });
+    });
+
+    it("is the rotation time when the post has also reached its comment cap", TEST_OPTIONS, (): void => {
+        expect.assertions(1);
+
+        const fullPost = { ...MORNING_POST, numberOfComments: 100 };
+
+        expect(findRotationReason(fullPost, DAILY_AT_NOON, Date.parse("2026-04-21T12:01:00Z"))).toStrictEqual({
+            kind: "rotation time",
+            rotationTime: new Date("2026-04-21T12:00:00Z"),
+        });
     });
 
     it("never comes due by time without a schedule", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
-        expect(isDueForRotation(MORNING_POST, CAP_ONLY, Date.parse("2030-01-01T00:00:00Z"))).toBe(false);
+        expect(findRotationReason(MORNING_POST, CAP_ONLY, Date.parse("2030-01-01T00:00:00Z"))).toBeUndefined();
     });
 });
 

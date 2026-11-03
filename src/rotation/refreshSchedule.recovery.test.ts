@@ -26,28 +26,32 @@ describe(startRefreshCheck, (): void => {
 });
 
 describe(ensureRefreshPending, (): void => {
-    it("leaves a pending refresh alone", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+    it("leaves a pending refresh alone, and logs when it is due", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
 
+        const logSpy = silenceConsole("log");
         const fakes = createFakeRotationPorts();
         await ensureRefreshPending(fakes.ports);
 
         expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith("The next refresh is due at 2100-01-01T00:00:00.000Z.");
     });
 
     it(
         "leaves alone a refresh only a few minutes late, which the scheduler may still run",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(1);
+            expect.assertions(2);
 
             freezeTime("2026-04-21T10:43:00Z");
+            const logSpy = silenceConsole("log");
             const fakes = createFakeRotationPorts();
             fakes.refreshJobs.pendingRunTimes.mockResolvedValue([new Date("2026-04-21T10:35:00Z")]);
 
             await ensureRefreshPending(fakes.ports);
 
             expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith("The next refresh is due at 2026-04-21T10:35:00.000Z.");
         },
     );
 
@@ -102,9 +106,10 @@ describe("ensureRefreshPending with thread configs stored since the last refresh
         "requests a refresh when the pending one, due %s, is not due at once, and logs it",
         TEST_OPTIONS,
         async (pendingAt: string): Promise<void> => {
-            expect.assertions(2);
+            expect.assertions(3);
 
             freezeTime("2026-04-21T10:43:00Z");
+            const logSpy = silenceConsole("log");
             const errorSpy = silenceConsole("error");
             const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
             await fakes.ports.appliedThreadConfigs.record([]);
@@ -116,6 +121,8 @@ describe("ensureRefreshPending with thread configs stored since the last refresh
             expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
                 "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
             );
+            // The refresh it replaced is not the next one any more.
+            expect(logSpy).not.toHaveBeenCalled();
         },
     );
 
@@ -123,9 +130,10 @@ describe("ensureRefreshPending with thread configs stored since the last refresh
         "leaves alone a pending refresh due at once (%s), as their save requested",
         TEST_OPTIONS,
         async (pendingAt: string): Promise<void> => {
-            expect.assertions(1);
+            expect.assertions(2);
 
             freezeTime("2026-04-21T10:43:00Z");
+            const logSpy = silenceConsole("log");
             const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
             await fakes.ports.appliedThreadConfigs.record([]);
             fakes.refreshJobs.pendingRunTimes.mockResolvedValue([new Date(pendingAt)]);
@@ -133,6 +141,9 @@ describe("ensureRefreshPending with thread configs stored since the last refresh
             await ensureRefreshPending(fakes.ports);
 
             expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                `The next refresh is due at ${new Date(pendingAt).toISOString()}.`,
+            );
         },
     );
 

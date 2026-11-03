@@ -42,11 +42,28 @@ export interface RotationTriggers {
     readonly commentCap: number;
 }
 
-/** Whether a live post is due for rotation at `now`: its rotation time has passed, or it has reached its comment cap. */
-export function isDueForRotation(post: LivePostState, rotatesOn: RotationTriggers, now: number): boolean {
+/** Why a live post is due for rotation. */
+export type RotationReason =
+    Readonly<{ kind: "comment cap"; commentCap: number }> | Readonly<{ kind: "rotation time"; rotationTime: Date }>;
+
+/**
+ * Why a live post is due for rotation at `now`: its rotation time has passed, or else it has reached its comment cap.
+ * Undefined while it is not due.
+ */
+export function findRotationReason(
+    post: LivePostState,
+    rotatesOn: RotationTriggers,
+    now: number,
+): RotationReason | undefined {
     const { schedule } = rotatesOn;
-    const pastRotationTime = schedule !== undefined && getRotationTime(post.createdAt, schedule).getTime() < now;
-    return pastRotationTime || post.numberOfComments >= rotatesOn.commentCap;
+    const rotationTime = schedule === undefined ? undefined : getRotationTime(post.createdAt, schedule);
+    if (rotationTime !== undefined && rotationTime.getTime() < now) {
+        return { kind: "rotation time", rotationTime };
+    }
+
+    return post.numberOfComments >= rotatesOn.commentCap
+        ? { kind: "comment cap", commentCap: rotatesOn.commentCap }
+        : undefined;
 }
 
 /**
