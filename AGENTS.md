@@ -48,13 +48,13 @@ These choices are deliberate. Revisit one only when the user asks:
 - Write messages in CONTEXT.md's terms, and name the thread config and the post, revision or job involved.
 - The log stream is lossy: `devvit logs` can silently drop lines, as it did with a rotation's last two lines in November 2026. So:
     - **The reason travels with the event.** A line carries what an operator needs to read it alone: a rotation names why it happened, and a scheduled refresh names what it is for.
-    - **Restate what monitoring relies on.** The hourly refresh check logs when the next refresh is due, so a lost scheduling line costs at most an hour.
+    - **Restate what monitoring relies on.** The hourly refresh check logs each thread config's next refresh, so a lost scheduling line costs at most an hour.
     - **A missing line proves nothing.** Confirm on Reddit, or in stored state, that a step happened or failed.
 - [src/server/app.ts](src/server/app.ts) runs every handler through `observed` ([src/observed.ts](src/observed.ts)), which logs each failure with the handler's name and duration; the route then answers HTTP 500 with no detail. A handler that fires for every comment, post or mod action in the subreddit is registered as "failures only"; its use cases log what they change.
 
 ## Live state
 
-Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisAppliedThreadConfigs.ts](src/rotation/adapters/redisAppliedThreadConfigs.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), [redisThreadLocks.ts](src/rotation/adapters/redisThreadLocks.ts), and [composition.ts](src/composition.ts) for the alert latches) and scheduler job names (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts), and as task names in `devvit.json`) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
+Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConfigStore.ts), [redisAppliedThreadConfigs.ts](src/rotation/adapters/redisAppliedThreadConfigs.ts), [redisLivePosts.ts](src/rotation/adapters/redisLivePosts.ts), [redisRefreshStatus.ts](src/rotation/adapters/redisRefreshStatus.ts), [redisRetiredRefreshRecords.ts](src/rotation/adapters/redisRetiredRefreshRecords.ts) (read and deleted by the upgrade only), [redisThreadLocks.ts](src/rotation/adapters/redisThreadLocks.ts), and [composition.ts](src/composition.ts) for the alert latches, one per thread config for failed refreshes) and scheduler job names and each refresh job's `configName` data (in [schedulerRefreshJobs.ts](src/rotation/adapters/schedulerRefreshJobs.ts), and as task names in `devvit.json`) hold state in every subreddit the app is installed on. Keep them stable: a renamed key orphans its data on the next upgrade unless `onAppUpgrade` migrates it.
 
 ## Security
 

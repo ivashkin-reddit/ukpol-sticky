@@ -42,10 +42,10 @@ _Avoid_: tracked post, sticky post, current thread
 
 **Rotation**:
 Replacing a thread config's live post with a new one: the old post is retired, the new one published.
-_Avoid_: refresh (that is the whole pass), recreation
+_Avoid_: refresh (that is a thread config's whole pass), recreation
 
 **Handover**:
-The rest of a rotation once the new live post is published: distinguishing and stickying it, then retiring the old post. A handover that a failure interrupts is finished by the next refresh.
+The rest of a rotation once the new live post is published: distinguishing and stickying it, then retiring the old post. A handover that a failure interrupts is finished by the thread config's next refresh.
 _Avoid_: recovery, completion
 
 **Retirement**:
@@ -57,19 +57,19 @@ The distinguished, pinned comment a retiring live post receives, usually pointin
 _Avoid_: closing comment
 
 **Refresh**:
-One pass over all enabled thread configs that rotates every live post that is due and brings the others' bodies up to date.
+One pass over one enabled thread config: it finishes the thread config's unfinished handover, then rotates its live post if due, publishes one if it has none, or brings its body up to date. Each thread config's refreshes are scheduled on their own.
 _Avoid_: update, sync
 
-**Applied thread configs**:
-The thread configs the last refresh applied. While the thread configs in force differ from them, as after a config page save, a refresh is due at once, whatever else is pending.
+**Applied thread config**:
+The version of a thread config that its last refresh applied. While the stored version differs, as after a config page save, the thread config needs a refresh at once.
 _Avoid_: dirty flag, pending changes
 
 **Refresh check**:
-The hourly check that a refresh is pending and on time, and that the config page's latest revision has been applied. It requests a refresh when none will run, as after a refresh that failed or a scheduled one that never ran, or when thread configs differ from the applied thread configs and no refresh is due at once. It applies a revision nothing applied.
+The hourly check that each thread config in force has the refresh it needs pending and on time, and that the config page's latest revision has been applied. It requests a thread config's refresh when its stored version is not applied, it has no live post or its handover is unfinished, and no refresh of it is due soon; or when it has a schedule and no refresh of it will run. It forgets thread configs no longer in force, and applies a revision nothing applied.
 _Avoid_: safety net, heartbeat, cron job
 
 **Refresh status**:
-Whether refreshes are running: how the last refresh ended, when one last succeeded, and when the next is due.
+Whether a thread config's refreshes are running: how its last refresh ended, when one last succeeded, and when its next is due.
 _Avoid_: health, heartbeat
 
 ### Alerting moderators

@@ -28,8 +28,8 @@ Each YAML document on the config page is a _thread config_: it describes one rec
     3. the old post gets its `endNote`, then is locked if `lockOnRefresh` is set.
 - **Edits:** changing `body` edits the live post in place. Reddit titles cannot be edited, so a changed `title` takes effect at the next rotation.
 - **Disabling or removing a thread:** set `enabled: false` or delete its document. The app stops managing the thread and leaves its last post as it is.
-- **Deleted posts:** if a live post is deleted, the app publishes a new one for that thread at its next refresh. To get one straight away, save the config page (any change will do).
-- **Recovery:** a thread that fails to rotate does not hold up the others, and is retried within 15 minutes. The retry finishes a rotation the failure interrupted: it stickies and distinguishes the new post, and gives the old one its end note and lock, without repeating any step already done. Once an hour, at minute 43, the app also checks that a refresh is scheduled and on time, replacing one that is stuck. It applies any save to the config page it missed, and refreshes straight away if a saved change has not reached the live posts yet. Each refresh in turn makes sure that hourly check is still scheduled.
+- **Deleted or removed posts:** if a live post is deleted or removed, the app publishes a new one for that thread within the hour. To get one straight away, save the config page (any change will do).
+- **Recovery:** each thread is refreshed on its own, so a thread that fails to rotate does not hold up the others; it is retried within 15 minutes. The retry finishes a rotation the failure interrupted: it stickies and distinguishes the new post, and gives the old one its end note and lock, without repeating any step already done. Once an hour, at minute 43, the app also checks that each thread's next refresh is scheduled and on time, replacing one that is stuck. It applies any save to the config page it missed, and refreshes a thread straight away if a saved change has not reached it yet or it has no live post. Each refresh in turn makes sure that hourly check is still scheduled.
 
 The app posts and comments as its own account, u/ukpol-megabot.
 
@@ -181,19 +181,20 @@ body: |
 
 The app reports problems to the subreddit's moderators by modmail. A rejected save is reported once; editing other wiki pages does not repeat it.
 
-| Subject                                              | Meaning                                                                    | What to do                                                                                                     |
-| ---------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Invalid YAML in wiki page stickymgr/config           | The page is not valid YAML.                                                | Fix the YAML and save the page again.                                                                          |
-| Invalid config in wiki page stickymgr/config         | A thread config breaks one of the [rules](#rules). The modmail says which. | Fix it and save the page again.                                                                                |
-| Duplicate config names in wiki page stickymgr/config | Two thread configs share a `name`.                                         | Rename one and save the page again.                                                                            |
-| Incomplete schedule in config _name_                 | Only one of `frequency` and `postTime` is set.                             | Set both, or neither.                                                                                          |
-| Invalid date format in config _name_                 | The title's date token is not a valid date-fns format.                     | Correct the format and save the page again.                                                                    |
-| Sticky Manager cannot read its stored config         | The app's saved copy of the config is unreadable, so it has stopped.       | Save the config page (any change will do).                                                                     |
-| Sticky Manager could not refresh its threads         | A refresh failed, for example because Reddit was unavailable.              | Nothing, usually: the app retries on its own. If the failure persists, check the threads named in the modmail. |
+| Subject                                               | Meaning                                                                      | What to do                                                                                               |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Invalid YAML in wiki page stickymgr/config            | The page is not valid YAML.                                                  | Fix the YAML and save the page again.                                                                    |
+| Invalid config in wiki page stickymgr/config          | A thread config breaks one of the [rules](#rules). The modmail says which.   | Fix it and save the page again.                                                                          |
+| Duplicate config names in wiki page stickymgr/config  | Two thread configs share a `name`.                                           | Rename one and save the page again.                                                                      |
+| Incomplete schedule in config _name_                  | Only one of `frequency` and `postTime` is set.                               | Set both, or neither.                                                                                    |
+| Invalid date format in config _name_                  | The title's date token is not a valid date-fns format.                       | Correct the format and save the page again.                                                              |
+| Sticky Manager cannot read its stored config          | The app's saved copy of the config is unreadable, so it has stopped.         | Save the config page (any change will do).                                                               |
+| Sticky Manager could not refresh thread config _name_ | A refresh of that thread failed, for example because Reddit was unavailable. | Nothing, usually: the app retries within 15 minutes. If the failure persists, check that thread.         |
+| Sticky Manager could not schedule its refreshes       | The app could not check or schedule its refreshes.                           | Nothing, usually: the app tries again at the next hourly check. If it persists, ask the app's developer. |
 
 Until a rejected page is fixed, the previously accepted configuration stays in force.
 
-A rotation interrupted part-way leaves its thread part-way through until the retry finishes it, within 15 minutes if Reddit is back by then. Meanwhile the old post may be unstickied with no replacement yet, or the new post published but not yet stickied, and the old post not yet locked. The failure modmail is sent once per outage; no further one follows until a refresh succeeds.
+A rotation interrupted part-way leaves its thread part-way through until the retry finishes it, within 15 minutes if Reddit is back by then. Meanwhile the old post may be unstickied with no replacement yet, or the new post published but not yet stickied, and the old post not yet locked. The failure modmail about a thread is sent once; no further one follows until that thread refreshes successfully.
 
 If a rotation interrupted by the failure published its replacement but could not record it, the retry publishes another. Delete the extra, unstickied post. This is rare: it needs a failure in the moment between Reddit creating the post and the app recording it.
 
