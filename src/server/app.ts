@@ -38,8 +38,15 @@ interface Route {
     readonly path: string;
     /** The handler's name in logs. */
     readonly name: string;
+    /** What one run is for, from its body, added to its name in logs; undefined when there is nothing to add. */
+    readonly subject?: (body: JsonObject) => string | undefined;
     readonly successLogging: SuccessLogging;
     readonly handle: (body: JsonObject, context: DevvitContext) => Promise<void>;
+}
+
+function describeRefreshJob(body: JsonObject): string | undefined {
+    const { configName } = readRefreshJobEvent(body);
+    return configName === undefined ? undefined : `thread config ${configName}`;
 }
 
 const ROUTES: readonly Route[] = [
@@ -82,6 +89,7 @@ const ROUTES: readonly Route[] = [
     {
         path: "/internal/jobs/refresh",
         name: "Refresh job",
+        subject: describeRefreshJob,
         successLogging: "every run",
         handle: async (body: JsonObject, context: DevvitContext): Promise<void> => {
             await onRefreshJob(readRefreshJobEvent(body), context);
@@ -95,16 +103,13 @@ const ROUTES: readonly Route[] = [
     },
 ];
 
-function serveRoute(route: Route, getContext: () => DevvitContext): (honoContext: Context) => Promise<Response> {
-    const run = observed(
-        route.name,
-        route.successLogging,
-        async (body: JsonObject, provideContext: () => DevvitContext): Promise<void> => {
-            // Built inside `observed`, so a request whose context cannot be built is logged like any other failure.
-            await route.handle(body, provideContext());
-        },
-    );
+/** A run's name in logs: its handler's name, and what the run is for when its body says. */
+function nameRun(route: Route, body: JsonObject): string {
+    const subject = route.subject?.(body);
+    return subject === undefined ? route.name : `${route.name} for ${subject}`;
+}
 
+function serveRoute(route: Route, getContext: () => DevvitContext): (honoContext: Context) => Promise<Response> {
     return async (honoContext: Context): Promise<Response> => {
         const body = await honoContext.req.json<unknown>().catch((): undefined => undefined);
         if (!isJsonObject(body)) {
@@ -112,6 +117,14 @@ function serveRoute(route: Route, getContext: () => DevvitContext): (honoContext
             return honoContext.json(ERROR_RESPONSE, HTTP_BAD_REQUEST);
         }
 
+        const run = observed(
+            nameRun(route, body),
+            route.successLogging,
+            async (event: JsonObject, provideContext: () => DevvitContext): Promise<void> => {
+                // Built inside `observed`, so a request whose context cannot be built is logged like any other failure.
+                await route.handle(event, provideContext());
+            },
+        );
         try {
             await run(body, getContext);
         } catch {

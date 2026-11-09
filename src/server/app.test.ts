@@ -96,7 +96,7 @@ const ROUTE_CASES: readonly RouteCase[] = [
         body: { name: "RefreshStickyPosts", data: { configName: "daily-thread" } },
         event: { configName: "daily-thread" },
         handlerCalls: (): readonly unknown[] => vi.mocked(onRefreshJob).mock.calls,
-        successLogs: [["Refresh job finished in 0 ms."]],
+        successLogs: [["Refresh job for thread config daily-thread finished in 0 ms."]],
     },
     {
         path: "/internal/jobs/refresh-check",
@@ -158,6 +158,28 @@ describe(createApp, (): void => {
         });
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith("Refresh job failed after 0 ms:", failure);
     });
+
+    it(
+        "names the thread config in a refresh job's failure line, and keeps the plain name for a job without one",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(1);
+
+            freezeDate("2026-04-21T10:00:00Z");
+            const errorSpy = silenceConsole("error");
+            const failure = new Error("Reddit is down");
+            vi.mocked(onRefreshJob).mockRejectedValue(failure);
+            const send = serving((): DevvitContext => createFakeDevvitContext().context);
+
+            await send("POST", "/internal/jobs/refresh", JSON.stringify({ data: { configName: "daily-thread" } }));
+            await send("POST", "/internal/jobs/refresh", "{}");
+
+            expect(errorSpy.mock.calls).toStrictEqual([
+                ["Refresh job for thread config daily-thread failed after 0 ms:", failure],
+                ["Refresh job failed after 0 ms:", failure],
+            ]);
+        },
+    );
 
     it(
         "treats a request whose context cannot be built as a failure of its handler",
