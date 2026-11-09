@@ -2,12 +2,12 @@ import { configurationPorts, rotationPorts } from "./composition.js";
 import type { ConfigurationContext, RotationContext } from "./composition.js";
 import { applyConfigPageRevision, installConfigPage } from "./configuration/index.js";
 import {
-    ensureRefreshPending,
+    checkRefreshes,
     forgetDeletedPost,
-    refreshAllThreads,
-    requestRefresh,
+    refreshThreadConfig,
+    requestEveryThreadRefresh,
     rotateIfCapReached,
-    scheduleNextRefresh,
+    scheduleEveryThreadRefresh,
     startRefreshCheck,
 } from "./rotation/index.js";
 import type { NewComment } from "./rotation/index.js";
@@ -27,6 +27,13 @@ export type CommentCreateEvent = Readonly<{
 }>;
 
 export type PostDeleteEvent = Readonly<{ postId?: string | undefined }>;
+
+/** A refresh job's thread config; absent for a job scheduled before refreshes were per thread config. */
+export type RefreshJobEvent = Readonly<{ configName?: string | undefined }>;
+
+// Why a refresh of every thread config is requested, as its log line ends.
+const STORED_CONFIGS = "thread configs stored since the last refresh";
+const PRE_UPGRADE_JOB = "a refresh scheduled before the upgrade";
 
 function getRevisingModerator(event: ModActionEvent): string | undefined {
     if (event.action !== "wikirevise") {
@@ -51,7 +58,7 @@ async function applyConfigPage(
     context: ConfigurationContext & RotationContext,
 ): Promise<void> {
     if ((await applyConfigPageRevision(moderatorName, configurationPorts(context))) === "stored") {
-        await requestRefresh(rotationPorts(context));
+        await requestEveryThreadRefresh(rotationPorts(context), STORED_CONFIGS);
     }
 }
 
@@ -111,21 +118,28 @@ export async function onAppInstall(_event: unknown, context: ConfigurationContex
 export async function onAppUpgrade(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
     const ports = rotationPorts(context);
     await startRefreshCheck(ports.refreshJobs);
-    await scheduleNextRefresh(ports);
-    // Last, so a refresh it requests for newly stored thread configs is not replaced by the next rotation time.
+    await scheduleEveryThreadRefresh(ports);
+    // Last, so a refresh it requests for newly stored thread configs is not replaced by a rotation time.
     await applyConfigPage(undefined, context);
 }
 
-export async function onRefreshJob(_event: unknown, context: RotationContext): Promise<void> {
-    await refreshAllThreads(rotationPorts(context));
+/**
+ * A refresh job: it refreshes the thread config it names, or, scheduled before refreshes were per thread config,
+ * requests a refresh of every thread config.
+ */
+export async function onRefreshJob(event: RefreshJobEvent, context: RotationContext): Promise<void> {
+    const ports = rotationPorts(context);
+    await (event.configName === undefined
+        ? requestEveryThreadRefresh(ports, PRE_UPGRADE_JOB)
+        : refreshThreadConfig(event.configName, ports));
 }
 
 /**
- * The hourly check: a refresh is pending and on time, and the config page's current revision has been applied, in case
- * its wiki revision trigger failed or never came. The refresh comes first, so a config page that cannot be applied
- * cannot stop it.
+ * The hourly check: each thread config's refresh is pending and on time, and the config page's current revision has
+ * been applied, in case its wiki revision trigger failed or never came. The refreshes come first, so a config page
+ * that cannot be applied cannot stop them.
  */
 export async function onRefreshCheck(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
-    await ensureRefreshPending(rotationPorts(context));
+    await checkRefreshes(rotationPorts(context));
     await applyConfigPage(undefined, context);
 }

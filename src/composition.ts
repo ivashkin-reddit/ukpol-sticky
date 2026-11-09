@@ -8,6 +8,7 @@ import { modmailNotifier } from "./notifications/adapters/modmail.js";
 import type { ModmailContext } from "./notifications/adapters/modmail.js";
 import { redisAlertLatch } from "./notifications/adapters/redisAlertLatch.js";
 import type { AlertLatchRedis } from "./notifications/adapters/redisAlertLatch.js";
+import type { AlertLatch } from "./notifications/index.js";
 import { redditPosts } from "./rotation/adapters/redditPosts.js";
 import type { RedditPostsContext } from "./rotation/adapters/redditPosts.js";
 import { redisAppliedThreadConfigs } from "./rotation/adapters/redisAppliedThreadConfigs.js";
@@ -28,6 +29,8 @@ import type { RotationPorts } from "./rotation/index.js";
 // Live state in every installed subreddit, so these keys stay stable: each holds the claim on one alert's latch.
 const UNREADABLE_CONFIG_ALERT_KEY = "UnreadableConfigAlertSent";
 const REFRESH_FAILURE_ALERT_KEY = "RefreshFailureAlertSent";
+// One per thread config: the latch of the alert about its failed refreshes.
+const THREAD_FAILURE_ALERT_KEY_PREFIX = "RefreshFailureAlertSent:";
 
 export type ConfigReadContext = ModmailContext & Readonly<{ redis: AlertLatchRedis & ConfigStoreRedis }>;
 
@@ -66,6 +69,8 @@ export function rotationPorts(context: RotationContext): RotationPorts {
         refreshJobs: schedulerRefreshJobs(context.scheduler),
         refreshStatus: redisRefreshStatus(context.redis),
         threadConfigs: async (): Promise<readonly ThreadConfig[]> => await getThreadConfigs(configRead),
+        threadFailureAlert: (configName: string): AlertLatch =>
+            redisAlertLatch(context.redis, `${THREAD_FAILURE_ALERT_KEY_PREFIX}${configName}`),
         threadLocks: redisThreadLocks(context.redis),
     };
 }

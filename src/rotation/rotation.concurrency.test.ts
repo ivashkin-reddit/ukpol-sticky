@@ -4,7 +4,7 @@ import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.j
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import { COMMENT_CAP, commentOn, fullPost, newPost, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
 import type { ManagedPost } from "./ports.js";
-import { refreshAllThreads, rotateIfCapReached } from "./rotation.js";
+import { refreshThreadConfig, rotateIfCapReached } from "./rotation.js";
 
 // Triggers and jobs run concurrently, each in its own invocation, sharing state only through the ports. These tests
 // interleave two invocations on the same thread config and check that it is rotated once.
@@ -96,7 +96,7 @@ describe("concurrent rotations of one thread config", (): void => {
             const { fakes, holdNextPublish } = fullThread();
             const releasePublish = holdNextPublish();
 
-            const refresh = refreshAllThreads(fakes.ports);
+            const refresh = refreshThreadConfig("sticky-thread", fakes.ports);
             await vi.waitFor((): void => {
                 expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith(REPLACEMENT);
             });

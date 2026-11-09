@@ -1,4 +1,4 @@
-import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent } from "../triggers.js";
+import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent, RefreshJobEvent } from "../triggers.js";
 
 // Devvit Web delivers each trigger and task as a JSON body, which the server treats as untrusted input: each route
 // narrows its body to the handler's event, keeping a field only when it has the expected type. A missing or mistyped
@@ -57,4 +57,13 @@ export function readCommentCreateEvent(body: JsonObject): CommentCreateEvent {
 
 export function readPostDeleteEvent(body: JsonObject): PostDeleteEvent {
     return { postId: stringField(body, "postId") };
+}
+
+/**
+ * A refresh job's thread config, from its task request's data. A job scheduled before refreshes were per thread
+ * config has no data; any `configName` that is not a string reads as absent. A thread config may be named "".
+ */
+export function readRefreshJobEvent(body: JsonObject): RefreshJobEvent {
+    const data = objectField(body, "data");
+    return { configName: data === undefined ? undefined : stringField(data, "configName") };
 }

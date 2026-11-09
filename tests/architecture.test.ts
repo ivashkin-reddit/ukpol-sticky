@@ -76,7 +76,7 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
     {
         rule: "a module does not import a module after it",
         file: "src/configuration/storedConfigs.ts",
-        source: 'export { requestRefresh } from "../rotation/index.js";',
+        source: 'export { requestEveryThreadRefresh } from "../rotation/index.js";',
     },
     {
         rule: "notifications does not import the managed threads modules",
@@ -96,7 +96,7 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
     {
         rule: "the edge imports modules only through index.ts",
         file: "src/triggers.ts",
-        source: 'export { refreshAllThreads } from "./rotation/rotation.js";',
+        source: 'export { refreshThreadConfig } from "./rotation/rotation.js";',
     },
     {
         rule: "an adapter does not import another module's adapters",
@@ -131,7 +131,7 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
     {
         rule: "the server imports modules only through index.ts",
         file: "src/server/requestBodies.ts",
-        source: 'export { refreshAllThreads } from "../rotation/rotation.js";',
+        source: 'export { refreshThreadConfig } from "../rotation/rotation.js";',
     },
     {
         rule: "tests reach other modules only through their interfaces and adapters",

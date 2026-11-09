@@ -85,55 +85,69 @@ export interface ThreadLocks {
     readonly unlock: (configName: string) => Promise<void>;
 }
 
-/** Pending refreshes, and the hourly refresh check. */
+/** A pending refresh: which thread config it refreshes, and when it is due. */
+export interface PendingRefresh {
+    /** Undefined for one scheduled before refreshes were per thread config, which refreshes every thread config. */
+    readonly configName: string | undefined;
+    readonly runAt: Date;
+}
+
+/** Pending refreshes, each of one thread config, and the hourly refresh check. */
 export interface RefreshJobs {
-    /** When each pending refresh is due, earliest first; empty when none is pending. */
-    readonly pendingRunTimes: () => Promise<readonly Date[]>;
+    /** Every pending refresh, earliest first. */
+    readonly pending: () => Promise<readonly PendingRefresh[]>;
     /**
-     * Schedules a refresh at `runAt`, then cancels every other pending refresh: the new one is in place before any is
-     * cancelled, so a failure in between leaves a refresh pending, never none.
+     * Schedules a refresh of the thread config at `runAt`, then cancels its other pending refreshes: the new one is in
+     * place before any is cancelled, so a failure in between leaves one pending, never none.
      */
-    readonly replaceWith: (runAt: Date) => Promise<void>;
-    readonly cancelAll: () => Promise<void>;
+    readonly replaceFor: (configName: string, runAt: Date) => Promise<void>;
+    readonly cancelFor: (configName: string) => Promise<void>;
+    /** Cancels pending refreshes scheduled before refreshes were per thread config. */
+    readonly cancelUnassigned: () => Promise<void>;
     /** Whether the hourly refresh check is scheduled. */
     readonly hasHourlyCheck: () => Promise<boolean>;
     /** Starts the hourly refresh check, replacing any earlier one. */
     readonly startHourlyCheck: () => Promise<void>;
 }
 
-/** How the last refresh ended. */
+/** How a thread config's last refresh ended. */
 export type LastRefresh =
     Readonly<{ at: Date; outcome: "failed"; failure: string }> | Readonly<{ at: Date; outcome: "succeeded" }>;
 
-/** Whether refreshes are running: what the last one did, when one last succeeded, and when the next is due. */
+/** Whether a thread config's refreshes are running: how its last ended, when one last succeeded, when its next is due. */
 export interface RefreshStatus {
-    /** Undefined until the first refresh. */
+    /** Undefined until its first refresh. */
     readonly lastRefresh: LastRefresh | undefined;
     readonly lastSuccessAt: Date | undefined;
-    /** Undefined when no refresh is scheduled; in the past when a scheduled refresh did not run or did not finish. */
+    /** Undefined when no refresh of it is scheduled; in the past when one did not run or did not finish. */
     readonly nextRefreshAt: Date | undefined;
 }
 
-/** The refresh status, recorded as refreshes run and are scheduled. */
+/** Each thread config's refresh status, recorded as its refreshes run and are scheduled. */
 export interface RefreshStatusStore {
-    readonly read: () => Promise<RefreshStatus>;
-    readonly recordSuccess: (at: Date) => Promise<void>;
-    readonly recordFailure: (at: Date, failure: string) => Promise<void>;
-    /** Records when the next refresh is due, or that none is scheduled. */
-    readonly recordNextRefresh: (at: Date | undefined) => Promise<void>;
+    /** The named thread configs' refresh status, by name. */
+    readonly read: (configNames: readonly string[]) => Promise<Readonly<Record<string, RefreshStatus>>>;
+    readonly recordSuccess: (configName: string, at: Date) => Promise<void>;
+    readonly recordFailure: (configName: string, at: Date, failure: string) => Promise<void>;
+    /** Records when the thread config's next refresh is due, or that none is scheduled. */
+    readonly recordNextRefresh: (configName: string, at: Date | undefined) => Promise<void>;
+    readonly forget: (configNames: readonly string[]) => Promise<void>;
 }
 
 /** The thread configs in force. */
 export type LoadThreadConfigs = () => Promise<readonly ThreadConfig[]>;
 
 /**
- * The thread configs the last refresh applied. While the thread configs in force differ from them, a refresh is due at
- * once, so the need to apply stored thread configs outlives any pending refresh that rescheduling replaces.
+ * The version of each thread config that its last refresh applied. While a thread config's stored version differs,
+ * it needs a refresh at once, so the need to apply a save outlives any pending refresh that rescheduling replaces.
  */
 export interface AppliedThreadConfigs {
-    /** Whether `configs` are the thread configs the last refresh applied; false until a refresh has recorded any. */
-    readonly matches: (configs: readonly ThreadConfig[]) => Promise<boolean>;
-    readonly record: (configs: readonly ThreadConfig[]) => Promise<void>;
+    /** Whether `config` is the version its last refresh applied; false until a refresh of it has recorded one. */
+    readonly matches: (config: ThreadConfig) => Promise<boolean>;
+    readonly record: (config: ThreadConfig) => Promise<void>;
+    /** The names of the thread configs with an applied version recorded. */
+    readonly configNames: () => Promise<readonly string[]>;
+    readonly forget: (configNames: readonly string[]) => Promise<void>;
 }
 
 /** Every port the rotation use cases take; each use case declares the subset it uses. */
@@ -142,10 +156,12 @@ export interface RotationPorts {
     readonly livePosts: LivePosts;
     readonly notifyModerators: NotifyModerators;
     readonly posts: Posts;
-    /** Keeps the alert about failed refreshes to one until a refresh succeeds again. */
+    /** Keeps the alert about failures that belong to no single thread config to one until a refresh check succeeds. */
     readonly refreshFailureAlert: AlertLatch;
     readonly refreshJobs: RefreshJobs;
     readonly refreshStatus: RefreshStatusStore;
     readonly threadConfigs: LoadThreadConfigs;
+    /** Keeps the alert about a thread config's failed refreshes to one until it refreshes successfully again. */
+    readonly threadFailureAlert: (configName: string) => AlertLatch;
     readonly threadLocks: ThreadLocks;
 }

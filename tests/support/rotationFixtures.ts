@@ -33,18 +33,55 @@ export const DISABLED_CONFIG: ThreadConfig = {
     body: "Disabled body",
 };
 
+/** A thread config rotated daily at 12:30. */
+export const DAILY_CONFIG: ThreadConfig = {
+    name: "daily-thread",
+    enabled: true,
+    title: "Daily thread",
+    frequency: "daily",
+    postTime: "12:30",
+    maxComments: COMMENT_CAP,
+    body: "Daily body",
+};
+
 export const PUBLISH_ERROR = new Error("Reddit is down");
 
-/** The moderator alert a refresh failure sends, with the failure's `details`. */
-export function failureAlert(details: string): Readonly<{ subject: string; bodyMarkdown: string }> {
+/** The moderator alert a failed refresh of the thread config sends, with the failure's `details`. */
+export function threadFailureAlert(
+    configName: string,
+    details: string,
+): Readonly<{ subject: string; bodyMarkdown: string }> {
     return {
-        subject: "Sticky Manager could not refresh its threads",
+        subject: `Sticky Manager could not refresh thread config ${configName}`,
         bodyMarkdown: [
-            "A refresh of the managed threads failed. If it interrupted a rotation, that thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.",
-            "Sticky Manager tries again within the hour and finishes any interrupted rotation. It sends no further alert until a refresh succeeds.",
+            `A refresh of thread config ${configName} failed. If it interrupted a rotation, the thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.`,
+            "Sticky Manager tries again within 15 minutes and finishes any interrupted rotation. It sends no further alert about this thread config until it refreshes successfully.",
             `Details: ${details}`,
         ].join("\n\n"),
     };
+}
+
+/** The moderator alert a failure to check or schedule refreshes sends, with the failure's `details`. */
+export function refreshFailureAlert(details: string): Readonly<{ subject: string; bodyMarkdown: string }> {
+    return {
+        subject: "Sticky Manager could not schedule its refreshes",
+        bodyMarkdown: [
+            "Sticky Manager could not check or schedule its refreshes, so a managed thread may not rotate on time.",
+            "It tries again at the next hourly check. It sends no further alert of this kind until a check succeeds.",
+            `Details: ${details}`,
+        ].join("\n\n"),
+    };
+}
+
+/** DAILY_CONFIG's live post, published at 05:00 on 2026-04-21 with its body up to date, so it is due at 12:30. */
+export function dailyPost(id: string): FakePost {
+    return createFakePost({
+        body: "Daily body",
+        createdAt: new Date("2026-04-21T05:00:00Z"),
+        id,
+        numberOfComments: 0,
+        stickied: false,
+    });
 }
 
 /** A post just published, with no comments. */

@@ -9,6 +9,7 @@ export type {
     LoadThreadConfigs,
     ManagedComment,
     ManagedPost,
+    PendingRefresh,
     Posts,
     RefreshJobs,
     RefreshStatus,
@@ -16,12 +17,12 @@ export type {
     RotationPorts,
     ThreadLocks,
 } from "./ports.js";
+export { checkRefreshes } from "./refreshCheck.js";
 export {
-    ensureRefreshPending,
     getRefreshStatus,
-    requestRefresh,
-    scheduleNextRefresh,
+    requestEveryThreadRefresh,
+    scheduleEveryThreadRefresh,
     startRefreshCheck,
 } from "./refreshSchedule.js";
-export { forgetDeletedPost, refreshAllThreads, rotateIfCapReached } from "./rotation.js";
+export { forgetDeletedPost, refreshThreadConfig, rotateIfCapReached } from "./rotation.js";
 export type { NewComment } from "./rotation.js";

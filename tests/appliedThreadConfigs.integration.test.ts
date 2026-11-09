@@ -4,7 +4,12 @@ import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
 import type { ThreadConfig } from "../src/configuration/index.js";
-import { ensureRefreshPending, refreshAllThreads, requestRefresh, scheduleNextRefresh } from "../src/rotation/index.js";
+import {
+    checkRefreshes,
+    refreshThreadConfig,
+    requestEveryThreadRefresh,
+    scheduleEveryThreadRefresh,
+} from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -45,7 +50,7 @@ async function refreshedDailyThread(): Promise<string> {
     const postId = await submitPostAt("2026-04-21T05:00:00Z", "Daily thread", "Daily body");
     vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
     await redis.hSet("StickyPostStore", { "daily-thread": postId });
-    await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
+    await refreshThreadConfig("daily-thread", rotationPorts(HARNESS_CONTEXT));
     return postId;
 }
 
@@ -62,9 +67,12 @@ describe("thread configs stored since the last refresh", (): void => {
 
             // A moderator saves a new body: it is stored, and a refresh is requested to apply it.
             await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
-            await requestRefresh(rotationPorts(HARNESS_CONTEXT));
-            // Before that refresh runs, another invocation reschedules, as a comment-cap rotation does when it ends.
-            await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
+            await requestEveryThreadRefresh(
+                rotationPorts(HARNESS_CONTEXT),
+                "thread configs stored since the last refresh",
+            );
+            // Before that refresh runs, the thread configs are rescheduled, as an upgrade does.
+            await scheduleEveryThreadRefresh(rotationPorts(HARNESS_CONTEXT));
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:05.000Z"]);
         },
@@ -79,7 +87,7 @@ describe("thread configs stored since the last refresh", (): void => {
             const postId = await refreshedDailyThread();
             await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
 
-            await refreshAllThreads(rotationPorts(HARNESS_CONTEXT));
+            await refreshThreadConfig("daily-thread", rotationPorts(HARNESS_CONTEXT));
 
             await expect(reddit.getPostById(asPostId(postId))).resolves.toHaveProperty("body", "Edited body");
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
@@ -93,10 +101,10 @@ describe("thread configs stored since the last refresh", (): void => {
             expect.assertions(1);
 
             await refreshedDailyThread();
-            // Live state from a version that did not record the applied thread configs.
-            await redis.del("AppliedThreadConfigs");
+            // Live state with no applied version recorded, as before a thread config's first refresh.
+            await redis.del("AppliedThreadConfigsByName");
 
-            await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
+            await scheduleEveryThreadRefresh(rotationPorts(HARNESS_CONTEXT));
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:05.000Z"]);
         },
@@ -116,11 +124,11 @@ describe("the refresh check, with thread configs stored since the last refresh",
             await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
             vi.setSystemTime(new Date("2026-04-21T10:43:00Z"));
 
-            await ensureRefreshPending(rotationPorts(HARNESS_CONTEXT));
+            await checkRefreshes(rotationPorts(HARNESS_CONTEXT));
 
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:43:01.000Z"]);
             expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
-                "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
+                "Requested a refresh of thread config daily-thread: its stored thread config was never applied, and no refresh of it was due.",
             );
         },
     );
@@ -130,12 +138,12 @@ describe("the refresh check, with thread configs stored since the last refresh",
 
         await refreshedDailyThread();
         await storeThreadConfigs([EDITED_CONFIG], configReadPorts(HARNESS_CONTEXT));
-        await requestRefresh(rotationPorts(HARNESS_CONTEXT));
+        await requestEveryThreadRefresh(rotationPorts(HARNESS_CONTEXT), "thread configs stored since the last refresh");
         const pendingIds = await refreshJobIds();
         // The check runs before Devvit has run the requested refresh.
         vi.setSystemTime(new Date("2026-04-21T10:00:30Z"));
 
-        await ensureRefreshPending(rotationPorts(HARNESS_CONTEXT));
+        await checkRefreshes(rotationPorts(HARNESS_CONTEXT));
 
         await expect(refreshJobIds()).resolves.toStrictEqual(pendingIds);
     });

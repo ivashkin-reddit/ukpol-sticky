@@ -123,25 +123,30 @@ describe("events and tasks delivered twice", (): void => {
             // One write: the page's only revision is the template the first install wrote, which the second kept.
             await expect(redis.get("LastRevision")).resolves.toBe("rev-1");
             await expect(listRefreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
-            await expect(listRefreshJobs()).resolves.toHaveLength(1);
+            // The template holds no thread configs, so there is no thread config to refresh.
+            await expect(listRefreshJobs()).resolves.toStrictEqual([]);
             expect(world.createModInboxConversation).not.toHaveBeenCalled();
         },
     );
 
-    devvitIt("an AppUpgrade leaves one hourly check and one pending refresh", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(4);
+    devvitIt(
+        "an AppUpgrade leaves one hourly check and one pending refresh per thread config",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(4);
 
-        freezeDate("2026-04-21T10:00:00Z");
-        silenceConsole("log");
-        const world = createHarnessWorld(VALID_CONFIG_PAGE);
+            freezeDate("2026-04-21T10:00:00Z");
+            silenceConsole("log");
+            const world = createHarnessWorld(VALID_CONFIG_PAGE);
 
-        await expect(
-            world.deliverTwice("/internal/triggers/app-upgrade", { type: "AppUpgrade" }),
-        ).resolves.toStrictEqual([200, 200]);
-        await expect(listRefreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
-        await expect(listRefreshJobs()).resolves.toHaveLength(1);
-        expect(world.createModInboxConversation).not.toHaveBeenCalled();
-    });
+            await expect(
+                world.deliverTwice("/internal/triggers/app-upgrade", { type: "AppUpgrade" }),
+            ).resolves.toStrictEqual([200, 200]);
+            await expect(listRefreshCheckCrons()).resolves.toStrictEqual(["43 * * * *"]);
+            await expect(listRefreshJobs()).resolves.toHaveLength(1);
+            expect(world.createModInboxConversation).not.toHaveBeenCalled();
+        },
+    );
 
     devvitIt(
         "the refresh job keeps a live post that is not yet due and its next refresh",
@@ -153,11 +158,30 @@ describe("events and tasks delivered twice", (): void => {
             await startRefreshCheck(rotationPorts(world.context).refreshJobs);
 
             await expect(
-                world.deliverTwice("/internal/jobs/refresh", { name: "RefreshStickyPosts" }),
+                world.deliverTwice("/internal/jobs/refresh", {
+                    name: "RefreshStickyPosts",
+                    data: { configName: "daily-thread" },
+                }),
             ).resolves.toStrictEqual([200, 200]);
             await expect(redis.hGetAll("StickyPostStore")).resolves.toStrictEqual({ "daily-thread": postId });
             await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
             expect(world.submitPost).not.toHaveBeenCalled();
+            expect(world.createModInboxConversation).not.toHaveBeenCalled();
+        },
+    );
+
+    devvitIt(
+        "a refresh job from before the upgrade requests one refresh of each thread config",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const { world } = await worldWithLivePost();
+
+            await expect(
+                world.deliverTwice("/internal/jobs/refresh", { name: "RefreshStickyPosts" }),
+            ).resolves.toStrictEqual([200, 200]);
+            await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:01.000Z"]);
             expect(world.createModInboxConversation).not.toHaveBeenCalled();
         },
     );

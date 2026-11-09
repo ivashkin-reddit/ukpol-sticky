@@ -4,7 +4,7 @@ import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
 import type { ThreadConfig } from "../src/configuration/index.js";
 import { REFRESH_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
-import { scheduleNextRefresh } from "../src/rotation/index.js";
+import { scheduleEveryThreadRefresh } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, listRefreshJobs, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -20,7 +20,6 @@ const DAILY_CONFIG: ThreadConfig = {
     postTime: "12:30",
     maxComments: 200,
     body: "Daily body",
-    sticky: true,
 };
 const WEEKLY_CONFIG: ThreadConfig = {
     name: "weekly-thread",
@@ -30,7 +29,6 @@ const WEEKLY_CONFIG: ThreadConfig = {
     postTime: "08:00",
     maxComments: 200,
     body: "Weekly body",
-    sticky: true,
 };
 const CAP_CONFIG: ThreadConfig = {
     name: "cap-thread",
@@ -38,27 +36,35 @@ const CAP_CONFIG: ThreadConfig = {
     title: "Cap thread",
     maxComments: 200,
     body: "Cap body",
-    sticky: true,
 };
 
-async function refreshJobTimes(): Promise<string[]> {
-    return (await listRefreshJobs()).map((job: Readonly<{ runAt: Date }>): string => job.runAt.toISOString());
+/** Each pending refresh as "<thread config> <time>", sorted: jobs scheduled in parallel list in any order. */
+async function refreshJobs(): Promise<string[]> {
+    const jobs = (await listRefreshJobs()).map(
+        (job: Readonly<{ runAt: Date; data: Readonly<Record<string, unknown>> | undefined }>): string =>
+            `${String(job.data?.["configName"])} ${job.runAt.toISOString()}`,
+    );
+    return jobs.sort((first: string, second: string): number => first.localeCompare(second));
 }
 
 async function jobNames(): Promise<string[]> {
     return (await scheduler.listJobs()).map((job: Readonly<{ name: string }>): string => job.name);
 }
 
-/** Stores `configs` as the thread configs in force, recorded as applied, as they are once a refresh has run. */
+/** Stores `configs`, each recorded as applied, as they are once their refreshes have run. */
 async function storeAppliedThreadConfigs(configs: readonly ThreadConfig[]): Promise<void> {
     await storeThreadConfigs(configs, configReadPorts(HARNESS_CONTEXT));
     const ports = rotationPorts(HARNESS_CONTEXT);
-    await ports.appliedThreadConfigs.record(await ports.threadConfigs());
+    await Promise.all(
+        (await ports.threadConfigs()).map(async (config: ThreadConfig): Promise<void> => {
+            await ports.appliedThreadConfigs.record(config);
+        }),
+    );
 }
 
-describe(scheduleNextRefresh, (): void => {
+describe(scheduleEveryThreadRefresh, (): void => {
     devvitIt(
-        "replaces pending refresh jobs with one five seconds after the earliest rotation time",
+        "schedules each thread config five seconds after its rotation time and cancels the job from before the upgrade",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(3);
@@ -72,39 +78,23 @@ describe(scheduleNextRefresh, (): void => {
                 "cap-thread": await submitPostAt("2026-04-21T07:00:00Z", "Cap thread", "Cap body"),
             });
             vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
-            await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt: new Date("2026-04-21T09:30:00Z") });
+            await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt: new Date("2026-04-21T12:30:05Z") });
             await scheduler.runJob({ name: "keep-me", runAt: new Date("2026-04-22T00:00:00Z") });
 
-            await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
+            await scheduleEveryThreadRefresh(rotationPorts(HARNESS_CONTEXT));
 
-            await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T12:30:05.000Z"]);
+            await expect(refreshJobs()).resolves.toStrictEqual([
+                "daily-thread 2026-04-21T12:30:05.000Z",
+                "weekly-thread 2026-04-22T08:00:05.000Z",
+            ]);
             await expect(jobNames()).resolves.toContain("keep-me");
-            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
-                "Next refresh scheduled for 2026-04-21T12:30:05.000Z: it rotates thread config daily-thread.",
+            expect(logSpy).toHaveBeenCalledWith(
+                "Thread config cap-thread has no schedule, so only its comment cap rotates it.",
             );
         },
     );
 
-    devvitIt("removes pending refresh jobs when no live post has a schedule", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(3);
-
-        freezeTime("2026-04-21T10:00:00Z");
-        const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        await storeAppliedThreadConfigs([CAP_CONFIG]);
-        await redis.hSet("StickyPostStore", {
-            "cap-thread": await submitPostAt("2026-04-21T07:00:00Z", "Cap thread", "Cap body"),
-        });
-        await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt: new Date("2026-04-21T14:00:00Z") });
-        await scheduler.runJob({ name: "keep-me", runAt: new Date("2026-04-22T00:00:00Z") });
-
-        await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
-
-        await expect(refreshJobTimes()).resolves.toStrictEqual([]);
-        await expect(jobNames()).resolves.toStrictEqual(["keep-me"]);
-        expect(logSpy).toHaveBeenCalledExactlyOnceWith("No live post has a schedule, so no refresh is scheduled.");
-    });
-
-    devvitIt("schedules an overdue refresh five seconds from now", TEST_OPTIONS, async (): Promise<void> => {
+    devvitIt("schedules an overdue rotation five seconds from now", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
         freezeTime("2026-04-21T10:00:00Z");
@@ -115,8 +105,8 @@ describe(scheduleNextRefresh, (): void => {
         });
         vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
 
-        await scheduleNextRefresh(rotationPorts(HARNESS_CONTEXT));
+        await scheduleEveryThreadRefresh(rotationPorts(HARNESS_CONTEXT));
 
-        await expect(refreshJobTimes()).resolves.toStrictEqual(["2026-04-21T10:00:05.000Z"]);
+        await expect(refreshJobs()).resolves.toStrictEqual(["daily-thread 2026-04-21T10:00:05.000Z"]);
     });
 });

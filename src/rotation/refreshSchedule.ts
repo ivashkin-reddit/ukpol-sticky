@@ -1,161 +1,165 @@
-import { addMinutes, addSeconds, subMinutes } from "date-fns";
+import { addSeconds } from "date-fns";
 import { getSchedule } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { earliest, getRotationTime } from "./domain/rotationRules.js";
-import type { RefreshJobs, RefreshStatus, RefreshStatusStore, RotationPorts } from "./ports.js";
-import { alertingOnFailure } from "./refreshFailures.js";
-import type { FailureAlertPorts } from "./refreshFailures.js";
+import { findNextRefresh, isDueAtOnce, isDueWithinRetryDelay } from "./domain/refreshRules.js";
+import type { NextRefresh, ThreadRefreshState } from "./domain/refreshRules.js";
+import { getRotationTime, refreshOrder } from "./domain/rotationRules.js";
+import { forgetRemovedThreadConfigs, forgetThreadConfigs } from "./forgetThreadConfigs.js";
+import type { ForgetPorts } from "./forgetThreadConfigs.js";
+import type { PendingRefresh, RefreshJobs, RefreshStatus, RefreshStatusStore, RotationPorts } from "./ports.js";
+import { alertingOnRefreshFailure } from "./refreshFailures.js";
+import type { RefreshFailureAlertPorts } from "./refreshFailures.js";
 
-// A refresh scheduled for a rotation time runs a few seconds after it, so the live post is due by then.
-const REFRESH_JOB_DELAY_SECONDS = 5;
+// A refresh requested now, as after a config page save, runs a second later.
 const REQUESTED_REFRESH_DELAY_SECONDS = 1;
-// How soon a thread config that failed is retried. Its own rotation time is left out of the reckoning, since a
-// thread config that keeps failing while overdue would otherwise bring the next refresh round every few seconds.
-const RETRY_DELAY_MINUTES = 15;
-// A pending refresh this long past its time is taken as stuck: Devvit runs a job within about a minute of its time.
-const STUCK_AFTER_MINUTES = 10;
 
-/** Whether a refresh due at `runAt` can still be expected to run as of `now`: it is not long past its time. */
-function isOnTime(runAt: Date, now: Date): boolean {
-    return runAt.getTime() > subMinutes(now, STUCK_AFTER_MINUTES).getTime();
+export type SchedulePorts = ForgetPorts & Pick<RotationPorts, "posts">;
+
+export type RequestPorts = RefreshFailureAlertPorts & SchedulePorts;
+
+/** The enabled thread config named `configName`, if one is in force. */
+export function findConfigInForce(configs: readonly ThreadConfig[], configName: string): ThreadConfig | undefined {
+    return refreshOrder(configs).find((config): boolean => config.name === configName);
 }
 
-/**
- * Whether a refresh due at `runAt` is due at once as of `now`: on time, and due no later than a refresh scheduled now
- * for thread configs not yet applied would be.
- */
-function isDueAtOnce(runAt: Date, now: Date): boolean {
-    return isOnTime(runAt, now) && runAt.getTime() <= addSeconds(now, REFRESH_JOB_DELAY_SECONDS).getTime();
-}
-
-/** Something a refresh must do, from when it is due. */
-interface RefreshNeed {
-    readonly dueAt: Date;
-    /** What the refresh does for it, as the log names it: "it rotates thread config daily-thread", say. */
-    readonly task: string;
-}
-
-function isNeed(need: RefreshNeed | undefined): need is RefreshNeed {
-    return need !== undefined;
-}
-
-/** What each enabled thread config's live post needs: publishing at once, or rotation at its rotation time. */
-async function findLivePostNeeds(
-    configs: readonly ThreadConfig[],
-    ports: RotationPorts,
-    failedConfigNames: readonly string[],
-): Promise<RefreshNeed[]> {
-    const livePostIds = await ports.livePosts.all();
-    const needs = await Promise.all(
-        configs
-            .filter((config): boolean => config.enabled && !failedConfigNames.includes(config.name))
-            .map(async (config): Promise<RefreshNeed | undefined> => {
-                const postId = livePostIds[config.name];
-                if (postId === undefined) {
-                    // Its live post is still to be published: added while a refresh ran, or deleted since.
-                    return { dueAt: new Date(), task: `it publishes a live post for thread config ${config.name}` };
-                }
-
-                const schedule = getSchedule(config);
-                if (schedule === undefined) {
-                    return undefined;
-                }
-
-                const post = await ports.posts.get(postId);
-                return {
-                    dueAt: getRotationTime(post.createdAt, schedule),
-                    task: `it rotates thread config ${config.name}`,
-                };
-            }),
-    );
-
-    return needs.filter(isNeed);
-}
-
-function describeThreadConfigs(configNames: readonly string[]): string {
+/** Thread configs by name, for a log line: "thread config a" or "thread configs a, b". */
+export function describeThreadConfigs(configNames: readonly string[]): string {
     return `${configNames.length === 1 ? "thread config" : "thread configs"} ${configNames.join(", ")}`;
 }
 
-/**
- * The next refresh: when it is due, and every need it meets then. It is due at once while the thread configs in force
- * are not the ones the last refresh applied; otherwise shortly after the earliest rotation time of a scheduled live
- * post, or, when thread configs just failed to refresh, at their retry time if that is sooner. Undefined when nothing
- * needs a refresh.
- */
-async function findNextRefresh(
-    ports: RotationPorts,
-    failedConfigNames: readonly string[],
-): Promise<Readonly<{ at: Date; tasks: readonly string[] }> | undefined> {
-    const configs = await ports.threadConfigs();
-    const needs: RefreshNeed[] = [
-        // Thread configs stored since the last refresh, as by a config page save, are due now even when the refresh
-        // their save requested is the pending refresh being replaced.
-        ...((await ports.appliedThreadConfigs.matches(configs))
-            ? []
-            : [{ dueAt: new Date(), task: "it applies thread configs stored since the last refresh" }]),
-        ...(await findLivePostNeeds(configs, ports, failedConfigNames)),
-        ...(failedConfigNames.length > 0
-            ? [
-                  {
-                      dueAt: addMinutes(new Date(), RETRY_DELAY_MINUTES),
-                      task: `it retries ${describeThreadConfigs(failedConfigNames)}`,
-                  },
-              ]
-            : []),
-    ];
-    const dueAt = earliest(needs.map((need): Date => need.dueAt));
-    if (dueAt === undefined) {
-        return undefined;
-    }
-
-    // A refresh cannot run in the past: every need due by the time it runs is met by it.
-    const runsFrom = Math.max(dueAt.getTime(), Date.now());
+/** What findNextRefresh reads of `config`; its live post is read from Reddit only for its rotation time. */
+async function readRefreshState(
+    config: ThreadConfig,
+    failed: boolean,
+    ports: SchedulePorts,
+): Promise<ThreadRefreshState> {
+    const postId = await ports.livePosts.get(config.name);
+    const schedule = getSchedule(config);
     return {
-        at: addSeconds(new Date(runsFrom), REFRESH_JOB_DELAY_SECONDS),
-        tasks: needs.filter((need): boolean => need.dueAt.getTime() <= runsFrom).map((need): string => need.task),
+        applied: await ports.appliedThreadConfigs.matches(config),
+        failed,
+        hasLivePost: postId !== undefined,
+        hasUnfinishedHandover: Object.hasOwn(await ports.livePosts.handovers(), config.name),
+        rotationTime:
+            postId === undefined || schedule === undefined
+                ? undefined
+                : getRotationTime((await ports.posts.get(postId)).createdAt, schedule),
     };
 }
 
-/** Replaces any pending refresh with one at the next refresh time, and logs what it is for; see findNextRefresh. */
-export async function scheduleNextRefresh(
-    ports: RotationPorts,
-    failedConfigNames: readonly string[] = [],
+/** Puts `next` in place as the thread config's one pending refresh, records it and logs it; none when undefined. */
+async function applyNextRefresh(
+    configName: string,
+    next: NextRefresh | undefined,
+    ports: SchedulePorts,
 ): Promise<void> {
-    // Read everything first, so thread configs that cannot be read fail before any pending refresh is replaced.
-    const nextRefresh = await findNextRefresh(ports, failedConfigNames);
-    if (nextRefresh === undefined) {
-        await ports.refreshJobs.cancelAll();
-        await ports.refreshStatus.recordNextRefresh(undefined);
-        console.log("No live post has a schedule, so no refresh is scheduled.");
+    if (next === undefined) {
+        await ports.refreshJobs.cancelFor(configName);
+        await ports.refreshStatus.recordNextRefresh(configName, undefined);
+        console.log(`Thread config ${configName} has no schedule, so only its comment cap rotates it.`);
         return;
     }
 
-    await ports.refreshJobs.replaceWith(nextRefresh.at);
-    await ports.refreshStatus.recordNextRefresh(nextRefresh.at);
-    console.log(`Next refresh scheduled for ${nextRefresh.at.toISOString()}: ${nextRefresh.tasks.join("; ")}.`);
+    await ports.refreshJobs.replaceFor(configName, next.at);
+    await ports.refreshStatus.recordNextRefresh(configName, next.at);
+    console.log(`Next refresh of thread config ${configName} scheduled for ${next.at.toISOString()}, ${next.reason}.`);
+}
+
+/** Schedules the thread config's next refresh by findNextRefresh, or forgets it if it is no longer in force. */
+async function scheduleThread(configName: string, failed: boolean, ports: SchedulePorts): Promise<void> {
+    // Read first, so thread configs that cannot be read fail before any pending refresh is replaced.
+    const config = findConfigInForce(await ports.threadConfigs(), configName);
+    if (config === undefined) {
+        await forgetThreadConfigs([configName], ports);
+        return;
+    }
+
+    await applyNextRefresh(
+        configName,
+        findNextRefresh(await readRefreshState(config, failed, ports), new Date()),
+        ports,
+    );
 }
 
 /**
- * Makes sure a refresh retries the failed thread config within the retry delay, unless an on-time refresh already
- * pending runs before then. While Reddit is down every comment on a full thread fails the same way, and rescheduling
- * for each would churn the scheduler into its limit of 60 new jobs a minute.
+ * Schedules the thread config's next refresh, as after a refresh of it succeeded or at the upgrade; see
+ * findNextRefresh. A thread config no longer in force is forgotten instead.
  */
-export async function scheduleRetry(ports: RotationPorts, failedConfigName: string): Promise<void> {
-    const now = new Date();
-    const retryBy = addSeconds(addMinutes(now, RETRY_DELAY_MINUTES), REFRESH_JOB_DELAY_SECONDS);
-    const pendingRunTimes = await ports.refreshJobs.pendingRunTimes();
-    if (pendingRunTimes.some((runAt: Date): boolean => isOnTime(runAt, now) && runAt.getTime() <= retryBy.getTime())) {
-        return;
-    }
-
-    await scheduleNextRefresh(ports, [failedConfigName]);
+export async function scheduleNextRefresh(configName: string, ports: SchedulePorts): Promise<void> {
+    await scheduleThread(configName, false, ports);
 }
 
-/** Replaces any pending refresh with one a second from now, e.g. to apply newly stored thread configs. */
-export async function requestRefresh(ports: Pick<RotationPorts, "refreshJobs" | "refreshStatus">): Promise<void> {
+/**
+ * After the thread config's refresh failed, makes sure a refresh retries it within the retry delay, unless an on-time
+ * refresh of it already pending runs before then. While Reddit is down every comment on a full thread fails the same
+ * way, and rescheduling for each would churn the scheduler into its limit of 60 new jobs a minute.
+ */
+export async function scheduleRetry(configName: string, ports: SchedulePorts): Promise<void> {
+    const now = new Date();
+    const pending = await ports.refreshJobs.pending();
+    const retryPending = pending.some(
+        (refresh: PendingRefresh): boolean =>
+            refresh.configName === configName && isDueWithinRetryDelay(refresh.runAt, now),
+    );
+    if (!retryPending) {
+        await scheduleThread(configName, true, ports);
+    }
+}
+
+/** Requests a refresh of the thread config a second from now, replacing its pending ones, and records it. */
+export async function requestThreadRefresh(configName: string, ports: SchedulePorts): Promise<void> {
     const refreshAt = addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS);
-    await ports.refreshJobs.replaceWith(refreshAt);
-    await ports.refreshStatus.recordNextRefresh(refreshAt);
+    await ports.refreshJobs.replaceFor(configName, refreshAt);
+    await ports.refreshStatus.recordNextRefresh(configName, refreshAt);
+}
+
+/** Requests a refresh of the thread config soon, unless one of it already pending is due at once. */
+async function requestSoon(
+    configName: string,
+    pending: readonly PendingRefresh[],
+    ports: SchedulePorts,
+): Promise<void> {
+    const now = new Date();
+    const dueAtOnce = pending.some(
+        (refresh: PendingRefresh): boolean => refresh.configName === configName && isDueAtOnce(refresh.runAt, now),
+    );
+    if (!dueAtOnce) {
+        await requestThreadRefresh(configName, ports);
+    }
+}
+
+/**
+ * Requests a refresh of every thread config in force, due in a second, and forgets the thread configs no longer in
+ * force; `why` ends the log line. A thread config whose pending refresh is due at once keeps it, so repeated saves do
+ * not spend the scheduler's limit of 60 new jobs a minute. A failure alerts moderators.
+ */
+export async function requestEveryThreadRefresh(ports: RequestPorts, why: string): Promise<void> {
+    await alertingOnRefreshFailure(ports, async (): Promise<void> => {
+        const configNames = refreshOrder(await ports.threadConfigs()).map((config): string => config.name);
+        const pending = await ports.refreshJobs.pending();
+        await Promise.all(
+            configNames.map(async (configName: string): Promise<void> => {
+                await requestSoon(configName, pending, ports);
+            }),
+        );
+        await forgetRemovedThreadConfigs(ports);
+        console.log(
+            configNames.length === 0
+                ? "No thread configs are in force, so no refresh is requested."
+                : `Requested a refresh of ${describeThreadConfigs(configNames)}: ${why}.`,
+        );
+    });
+}
+
+/** Schedules every thread config's next refresh, then cancels refreshes from before the upgrade, as at the upgrade. */
+export async function scheduleEveryThreadRefresh(ports: SchedulePorts): Promise<void> {
+    const configs = refreshOrder(await ports.threadConfigs());
+    await Promise.all(
+        configs.map(async (config): Promise<void> => {
+            await scheduleNextRefresh(config.name, ports);
+        }),
+    );
+    await ports.refreshJobs.cancelUnassigned();
 }
 
 /** Starts the hourly refresh check, replacing any earlier one. */
@@ -165,7 +169,7 @@ export async function startRefreshCheck(refreshJobs: RefreshJobs): Promise<void>
 
 /**
  * Starts the hourly refresh check again if it has gone. Every refresh calls this, and the check requests a refresh
- * when none will run, so each keeps the other going.
+ * when one is missing, so each keeps the other going.
  */
 export async function keepRefreshCheckRunning(refreshJobs: RefreshJobs): Promise<void> {
     if (await refreshJobs.hasHourlyCheck()) {
@@ -176,84 +180,10 @@ export async function keepRefreshCheckRunning(refreshJobs: RefreshJobs): Promise
     await refreshJobs.startHourlyCheck();
 }
 
-/**
- * Requests a refresh when the thread configs in force are not the ones the last refresh applied and no pending refresh
- * is due at once: the refresh their save requested was never scheduled, say, and the one pending is hours off. True
- * when it requested one.
- */
-async function requestRefreshForUnappliedConfigs(
-    ports: Pick<RotationPorts, "appliedThreadConfigs" | "refreshJobs" | "refreshStatus" | "threadConfigs">,
-    pendingRunTimes: readonly Date[],
-    now: Date,
-): Promise<boolean> {
-    if (
-        pendingRunTimes.some((runAt: Date): boolean => isDueAtOnce(runAt, now)) ||
-        (await ports.appliedThreadConfigs.matches(await ports.threadConfigs()))
-    ) {
-        return false;
-    }
-
-    console.error(
-        "Thread configs stored since the last refresh had no refresh due at once, so the refresh check requested one.",
-    );
-    await requestRefresh(ports);
-    return true;
-}
-
-/**
- * Leaves an on-time pending refresh in place and logs when it is due, unless thread configs stored since the last
- * refresh need one sooner, when it requests that. False when no pending refresh is on time.
- */
-async function keepOnTimeRefresh(
-    ports: Pick<RotationPorts, "appliedThreadConfigs" | "refreshJobs" | "refreshStatus" | "threadConfigs">,
-    pendingRunTimes: readonly Date[],
-    now: Date,
-): Promise<boolean> {
-    const nextRunAt = pendingRunTimes.find((runAt: Date): boolean => isOnTime(runAt, now));
-    if (nextRunAt === undefined) {
-        return false;
-    }
-
-    // The thread configs are read only once a refresh is known to be pending, so ones that cannot be read cannot stop
-    // the check from keeping a refresh pending.
-    if (!(await requestRefreshForUnappliedConfigs(ports, pendingRunTimes, now))) {
-        // Restated every hour: `devvit logs` can drop the line that scheduled it.
-        console.log(`The next refresh is due at ${nextRunAt.toISOString()}.`);
-    }
-
-    return true;
-}
-
-/**
- * The hourly refresh check. Each refresh schedules the next, so a refresh that fails early leaves none pending; the
- * check then requests one, which retries what failed. A pending refresh long past its time has not run and will not,
- * so the check replaces it too. One still on time is left alone, unless thread configs stored since the last refresh
- * need one at once and it is not due at once. A refresh the check requests can overlap one already running; thread
- * locks keep that from rotating a thread twice.
- */
-export async function ensureRefreshPending(
-    ports: FailureAlertPorts &
-        Pick<RotationPorts, "appliedThreadConfigs" | "refreshJobs" | "refreshStatus" | "threadConfigs">,
-): Promise<void> {
-    await alertingOnFailure(ports, async (): Promise<void> => {
-        const now = new Date();
-        const pendingRunTimes = await ports.refreshJobs.pendingRunTimes();
-        if (await keepOnTimeRefresh(ports, pendingRunTimes, now)) {
-            return;
-        }
-
-        const [stuckAt] = pendingRunTimes;
-        if (stuckAt === undefined) {
-            console.log("No refresh is pending, so the refresh check requested one.");
-        } else {
-            console.error(`The refresh due at ${stuckAt.toISOString()} has not run, so the refresh check replaced it.`);
-        }
-
-        await requestRefresh(ports);
-    });
-}
-
-/** Whether refreshes are running, for moderators: what the last refresh did, and when the next is due. */
-export async function getRefreshStatus(refreshStatus: RefreshStatusStore): Promise<RefreshStatus> {
-    return await refreshStatus.read();
+/** Whether each named thread config's refreshes are running, for moderators. */
+export async function getRefreshStatus(
+    refreshStatus: RefreshStatusStore,
+    configNames: readonly string[],
+): Promise<Readonly<Record<string, RefreshStatus>>> {
+    return await refreshStatus.read(configNames);
 }

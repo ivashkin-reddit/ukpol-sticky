@@ -12,7 +12,13 @@ import {
     onRefreshCheck,
     onRefreshJob,
 } from "../triggers.js";
-import { isJsonObject, readCommentCreateEvent, readModActionEvent, readPostDeleteEvent } from "./requestBodies.js";
+import {
+    isJsonObject,
+    readCommentCreateEvent,
+    readModActionEvent,
+    readPostDeleteEvent,
+    readRefreshJobEvent,
+} from "./requestBodies.js";
 import type { JsonObject } from "./requestBodies.js";
 
 // The app's whole HTTP surface. Devvit Web delivers each trigger and scheduled task that devvit.json declares as a JSON
@@ -73,7 +79,14 @@ const ROUTES: readonly Route[] = [
         successLogging: "every run",
         handle: onAppUpgrade,
     },
-    { path: "/internal/jobs/refresh", name: "Refresh job", successLogging: "every run", handle: onRefreshJob },
+    {
+        path: "/internal/jobs/refresh",
+        name: "Refresh job",
+        successLogging: "every run",
+        handle: async (body: JsonObject, context: DevvitContext): Promise<void> => {
+            await onRefreshJob(readRefreshJobEvent(body), context);
+        },
+    },
     {
         path: "/internal/jobs/refresh-check",
         name: "Refresh check",

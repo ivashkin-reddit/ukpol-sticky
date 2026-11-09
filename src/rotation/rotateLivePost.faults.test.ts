@@ -7,7 +7,7 @@ import { createStoredRotationPorts } from "../../tests/support/storedLivePosts.j
 import type { LivePostStore } from "../../tests/support/storedLivePosts.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import type { ManagedComment, ManagedPost } from "./ports.js";
-import { refreshAllThreads } from "./rotation.js";
+import { refreshThreadConfig } from "./rotation.js";
 
 // A rotation is a run of Reddit and Redis calls that cannot be made atomic. These tests fail each step once, retry
 // the refresh, and check that the retry finishes the rotation: the newest post is live, distinguished and stickied, and
@@ -169,9 +169,9 @@ describe("a rotation retried after one of its steps fails", (): void => {
                     break;
             }
 
-            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
+            await expect(refreshThreadConfig(CONFIG.name, fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
 
-            await refreshAllThreads(fakes.ports);
+            await refreshThreadConfig(CONFIG.name, fakes.ports);
 
             const livePost = published[published.length - 1]?.post;
 
@@ -210,20 +210,22 @@ describe("a rotation whose handover keeps failing", (): void => {
             const { fakes, published, failOnFirstPublished } = threadDueForRotation();
             failOnFirstPublished("sticky");
 
-            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
+            await expect(refreshThreadConfig(CONFIG.name, fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
 
             published[0]?.sticky.mockRejectedValueOnce(STEP_FAILURE);
 
-            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
+            await expect(refreshThreadConfig(CONFIG.name, fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
 
-            await refreshAllThreads(fakes.ports);
+            await refreshThreadConfig(CONFIG.name, fakes.ports);
 
             expect([
                 fakes.refreshStatus.recordFailure.mock.calls.length,
                 fakes.refreshStatus.recordSuccess.mock.calls.length,
             ]).toStrictEqual([2, 1]);
             expect(fakes.refreshStatus.recordSuccess).toHaveBeenCalledAfter(fakes.refreshStatus.recordFailure);
-            expect(fakes.refreshFailureAlert.release).toHaveBeenCalledAfter(fakes.refreshStatus.recordFailure);
+            expect(fakes.threadFailureAlert(CONFIG.name).release).toHaveBeenCalledAfter(
+                fakes.refreshStatus.recordFailure,
+            );
         },
     );
 });

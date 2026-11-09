@@ -1,11 +1,12 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ThreadConfig } from "../../src/configuration/index.js";
-import type { NotifyModerators } from "../../src/notifications/index.js";
+import type { AlertLatch, NotifyModerators } from "../../src/notifications/index.js";
 import type {
     AppliedThreadConfigs,
     LivePosts,
     LoadThreadConfigs,
+    PendingRefresh,
     Posts,
     RefreshJobs,
     RefreshStatusStore,
@@ -34,6 +35,8 @@ export interface FakeRotationPorts {
     readonly appliedThreadConfigs: Readonly<{
         matches: Mock<AppliedThreadConfigs["matches"]>;
         record: Mock<AppliedThreadConfigs["record"]>;
+        configNames: Mock<AppliedThreadConfigs["configNames"]>;
+        forget: Mock<AppliedThreadConfigs["forget"]>;
     }>;
     readonly livePosts: FakeLivePosts;
     readonly notifyModerators: Mock<NotifyModerators>;
@@ -44,9 +47,10 @@ export interface FakeRotationPorts {
     }>;
     readonly refreshFailureAlert: FakeAlertLatch;
     readonly refreshJobs: Readonly<{
-        pendingRunTimes: Mock<RefreshJobs["pendingRunTimes"]>;
-        replaceWith: Mock<RefreshJobs["replaceWith"]>;
-        cancelAll: Mock<RefreshJobs["cancelAll"]>;
+        pending: Mock<RefreshJobs["pending"]>;
+        replaceFor: Mock<RefreshJobs["replaceFor"]>;
+        cancelFor: Mock<RefreshJobs["cancelFor"]>;
+        cancelUnassigned: Mock<RefreshJobs["cancelUnassigned"]>;
         hasHourlyCheck: Mock<RefreshJobs["hasHourlyCheck"]>;
         startHourlyCheck: Mock<RefreshJobs["startHourlyCheck"]>;
     }>;
@@ -55,8 +59,11 @@ export interface FakeRotationPorts {
         recordSuccess: Mock<RefreshStatusStore["recordSuccess"]>;
         recordFailure: Mock<RefreshStatusStore["recordFailure"]>;
         recordNextRefresh: Mock<RefreshStatusStore["recordNextRefresh"]>;
+        forget: Mock<RefreshStatusStore["forget"]>;
     }>;
     readonly threadConfigs: Mock<LoadThreadConfigs>;
+    /** The latch of the alert about the named thread config's failed refreshes, the same one each time. */
+    readonly threadFailureAlert: (configName: string) => FakeAlertLatch;
     readonly threadLocks: Readonly<{ tryLock: Mock<ThreadLocks["tryLock"]>; unlock: Mock<ThreadLocks["unlock"]> }>;
 }
 
@@ -84,34 +91,47 @@ function createFakeLivePosts(stored: Partial<LivePosts>): FakeLivePosts {
 
 function createFakeRefreshStatus(): FakeRotationPorts["refreshStatus"] {
     return {
-        read: vi.fn<RefreshStatusStore["read"]>().mockResolvedValue({
-            lastRefresh: undefined,
-            lastSuccessAt: undefined,
-            nextRefreshAt: undefined,
-        }),
+        read: vi.fn<RefreshStatusStore["read"]>().mockResolvedValue({}),
         recordSuccess: vi.fn<RefreshStatusStore["recordSuccess"]>().mockResolvedValue(undefined),
         recordFailure: vi.fn<RefreshStatusStore["recordFailure"]>().mockResolvedValue(undefined),
         recordNextRefresh: vi.fn<RefreshStatusStore["recordNextRefresh"]>().mockResolvedValue(undefined),
+        forget: vi.fn<RefreshStatusStore["forget"]>().mockResolvedValue(undefined),
     };
 }
 
 /**
- * Applied thread configs that behave like the stored ones: thread configs match what was last recorded, compared as
- * JSON. They start with `configs` applied, as after a refresh.
+ * Applied thread configs that behave like the stored ones: a thread config matches the version last recorded under its
+ * name, compared as JSON. Each of `configs` that is enabled starts applied, as after its refresh.
  */
 function createFakeAppliedThreadConfigs(configs: readonly ThreadConfig[]): FakeRotationPorts["appliedThreadConfigs"] {
-    const applied = { json: JSON.stringify(configs) };
+    const applied = new Map(
+        configs
+            .filter((config): boolean => config.enabled)
+            .map((config): readonly [string, string] => [config.name, JSON.stringify(config)]),
+    );
     return {
         matches: vi
             .fn<AppliedThreadConfigs["matches"]>()
             .mockImplementation(
-                async (current: readonly ThreadConfig[]): Promise<boolean> =>
-                    await Promise.resolve(JSON.stringify(current) === applied.json),
+                async (config: ThreadConfig): Promise<boolean> =>
+                    await Promise.resolve(applied.get(config.name) === JSON.stringify(config)),
             ),
         record: vi
             .fn<AppliedThreadConfigs["record"]>()
-            .mockImplementation(async (current: readonly ThreadConfig[]): Promise<void> => {
-                applied.json = JSON.stringify(current);
+            .mockImplementation(async (config: ThreadConfig): Promise<void> => {
+                applied.set(config.name, JSON.stringify(config));
+                await Promise.resolve();
+            }),
+        configNames: vi
+            .fn<AppliedThreadConfigs["configNames"]>()
+            .mockImplementation(async (): Promise<readonly string[]> => await Promise.resolve([...applied.keys()])),
+        forget: vi
+            .fn<AppliedThreadConfigs["forget"]>()
+            .mockImplementation(async (configNames: readonly string[]): Promise<void> => {
+                for (const configName of configNames) {
+                    applied.delete(configName);
+                }
+
                 await Promise.resolve();
             }),
     };
@@ -133,58 +153,82 @@ function createFakeThreadLocks(): FakeRotationPorts["threadLocks"] {
     };
 }
 
-/** When the fakes' one pending refresh is due: later than any time a test runs at, so never overdue. */
+/** One alert latch per thread config name, created the first time it is asked for. */
+function createFakeThreadFailureAlerts(): (configName: string) => FakeAlertLatch {
+    const latches = new Map<string, FakeAlertLatch>();
+    return (configName: string): FakeAlertLatch => {
+        const existing = latches.get(configName);
+        if (existing !== undefined) {
+            return existing;
+        }
+
+        const created = createFakeAlertLatch();
+        latches.set(configName, created);
+        return created;
+    };
+}
+
+/** Posts with no answers of their own: each test sets what it reads and publishes. */
+function createFakePosts(): FakeRotationPorts["posts"] {
+    return {
+        get: vi.fn<Posts["get"]>(),
+        getComment: vi.fn<Posts["getComment"]>(),
+        publish: vi.fn<Posts["publish"]>(),
+    };
+}
+
+/** When each fake pending refresh is due: later than any time a test runs at, so never overdue. */
 export const PENDING_REFRESH_AT = new Date("2100-01-01T00:00:00Z");
 
+function createFakeRefreshJobs(configs: readonly ThreadConfig[]): FakeRotationPorts["refreshJobs"] {
+    const pending = configs
+        .filter((config): boolean => config.enabled)
+        .map((config): PendingRefresh => ({ configName: config.name, runAt: PENDING_REFRESH_AT }));
+    return {
+        pending: vi.fn<RefreshJobs["pending"]>().mockResolvedValue(pending),
+        replaceFor: vi.fn<RefreshJobs["replaceFor"]>().mockResolvedValue(undefined),
+        cancelFor: vi.fn<RefreshJobs["cancelFor"]>().mockResolvedValue(undefined),
+        cancelUnassigned: vi.fn<RefreshJobs["cancelUnassigned"]>().mockResolvedValue(undefined),
+        hasHourlyCheck: vi.fn<RefreshJobs["hasHourlyCheck"]>().mockResolvedValue(true),
+        startHourlyCheck: vi.fn<RefreshJobs["startHourlyCheck"]>().mockResolvedValue(undefined),
+    };
+}
+
 /**
- * Rotation ports whose every method is a typed mock: no live posts (unless `livePosts` implements them), a refresh
- * pending and the hourly check scheduled, an alert latch that can be claimed, working thread locks, and `configs` as the
- * thread configs in force, already applied by a refresh.
+ * Rotation ports whose every method is a typed mock: no live posts (unless `livePosts` implements them), a refresh of
+ * each enabled thread config pending and the hourly check scheduled, alert latches that can be claimed, working thread
+ * locks, and `configs` as the thread configs in force, each enabled one already applied by its refresh.
  */
 export function createFakeRotationPorts(
     configs: readonly ThreadConfig[] = [],
     livePosts: Partial<LivePosts> = {},
 ): FakeRotationPorts {
-    const appliedThreadConfigs = createFakeAppliedThreadConfigs(configs);
-    const fakeLivePosts = createFakeLivePosts(livePosts);
-    const posts = {
-        get: vi.fn<Posts["get"]>(),
-        getComment: vi.fn<Posts["getComment"]>(),
-        publish: vi.fn<Posts["publish"]>(),
+    const fakes: Omit<FakeRotationPorts, "ports"> = {
+        appliedThreadConfigs: createFakeAppliedThreadConfigs(configs),
+        livePosts: createFakeLivePosts(livePosts),
+        notifyModerators: vi.fn<NotifyModerators>().mockResolvedValue(undefined),
+        posts: createFakePosts(),
+        refreshFailureAlert: createFakeAlertLatch(),
+        refreshJobs: createFakeRefreshJobs(configs),
+        refreshStatus: createFakeRefreshStatus(),
+        threadConfigs: vi.fn<LoadThreadConfigs>().mockResolvedValue(configs),
+        threadFailureAlert: createFakeThreadFailureAlerts(),
+        threadLocks: createFakeThreadLocks(),
     };
-    const refreshJobs = {
-        pendingRunTimes: vi.fn<RefreshJobs["pendingRunTimes"]>().mockResolvedValue([PENDING_REFRESH_AT]),
-        replaceWith: vi.fn<RefreshJobs["replaceWith"]>().mockResolvedValue(undefined),
-        cancelAll: vi.fn<RefreshJobs["cancelAll"]>().mockResolvedValue(undefined),
-        hasHourlyCheck: vi.fn<RefreshJobs["hasHourlyCheck"]>().mockResolvedValue(true),
-        startHourlyCheck: vi.fn<RefreshJobs["startHourlyCheck"]>().mockResolvedValue(undefined),
-    };
-    const notifyModerators = vi.fn<NotifyModerators>().mockResolvedValue(undefined);
-    const refreshStatus = createFakeRefreshStatus();
-    const refreshFailureAlert = createFakeAlertLatch();
-    const threadConfigs = vi.fn<LoadThreadConfigs>().mockResolvedValue(configs);
-    const threadLocks = createFakeThreadLocks();
 
     return {
         ports: {
-            appliedThreadConfigs,
-            livePosts: fakeLivePosts,
-            notifyModerators,
-            posts,
-            refreshFailureAlert: refreshFailureAlert.latch,
-            refreshJobs,
-            refreshStatus,
-            threadConfigs,
-            threadLocks,
+            appliedThreadConfigs: fakes.appliedThreadConfigs,
+            livePosts: fakes.livePosts,
+            notifyModerators: fakes.notifyModerators,
+            posts: fakes.posts,
+            refreshFailureAlert: fakes.refreshFailureAlert.latch,
+            refreshJobs: fakes.refreshJobs,
+            refreshStatus: fakes.refreshStatus,
+            threadConfigs: fakes.threadConfigs,
+            threadFailureAlert: (configName: string): AlertLatch => fakes.threadFailureAlert(configName).latch,
+            threadLocks: fakes.threadLocks,
         },
-        appliedThreadConfigs,
-        livePosts: fakeLivePosts,
-        notifyModerators,
-        posts,
-        refreshFailureAlert,
-        refreshJobs,
-        refreshStatus,
-        threadConfigs,
-        threadLocks,
+        ...fakes,
     };
 }

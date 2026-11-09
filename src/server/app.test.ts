@@ -93,8 +93,8 @@ const ROUTE_CASES: readonly RouteCase[] = [
     },
     {
         path: "/internal/jobs/refresh",
-        body: { name: "RefreshStickyPosts" },
-        event: { name: "RefreshStickyPosts" },
+        body: { name: "RefreshStickyPosts", data: { configName: "daily-thread" } },
+        event: { configName: "daily-thread" },
         handlerCalls: (): readonly unknown[] => vi.mocked(onRefreshJob).mock.calls,
         successLogs: [["Refresh job finished in 0 ms."]],
     },

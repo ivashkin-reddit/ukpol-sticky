@@ -7,8 +7,14 @@ import type {
     OnPostDeleteRequest,
 } from "@devvit/web/shared";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent } from "../triggers.js";
-import { isJsonObject, readCommentCreateEvent, readModActionEvent, readPostDeleteEvent } from "./requestBodies.js";
+import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent, RefreshJobEvent } from "../triggers.js";
+import {
+    isJsonObject,
+    readCommentCreateEvent,
+    readModActionEvent,
+    readPostDeleteEvent,
+    readRefreshJobEvent,
+} from "./requestBodies.js";
 import type { JsonObject } from "./requestBodies.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -111,6 +117,24 @@ describe(readPostDeleteEvent, (): void => {
     );
 });
 
+describe(readRefreshJobEvent, (): void => {
+    it.for<readonly [JsonObject, RefreshJobEvent]>([
+        [{ name: "RefreshStickyPosts", data: { configName: "daily-thread" } }, { configName: "daily-thread" }],
+        [{ name: "RefreshStickyPosts", data: { configName: "" } }, { configName: "" }],
+        [{ name: "RefreshStickyPosts", data: { configName: 42 } }, { configName: undefined }],
+        [{ name: "RefreshStickyPosts", data: ["daily-thread"] }, { configName: undefined }],
+        [{ name: "RefreshStickyPosts" }, { configName: undefined }],
+    ])(
+        "reads the thread config a refresh job names (%j)",
+        TEST_OPTIONS,
+        ([body, event]: readonly [JsonObject, RefreshJobEvent]): void => {
+            expect.assertions(1);
+
+            expect(readRefreshJobEvent(body)).toStrictEqual(event);
+        },
+    );
+});
+
 // Compile-time contract: `npm run typecheck` fails when a Devvit upgrade renames or retypes a field the server reads.
 // The edge's event fields are optional, so only a per-field check catches a payload that lost one.
 describe("the request types Devvit Web sends", (): void => {
@@ -133,6 +157,12 @@ describe("the request types Devvit Web sends", (): void => {
         expect.assertions(0);
 
         expectTypeOf<OnPostDeleteRequest["postId"]>().toEqualTypeOf<string>();
+    });
+
+    it("still carry a task's data as a JSON object", TEST_OPTIONS, (): void => {
+        expect.assertions(0);
+
+        expectTypeOf<NonNullable<TaskRequest["data"]>>().toExtend<JsonObject>();
     });
 
     it("are JSON objects, as are install, upgrade and task requests", TEST_OPTIONS, (): void => {

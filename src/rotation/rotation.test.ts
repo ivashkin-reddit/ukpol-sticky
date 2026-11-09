@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { defer } from "../../tests/support/defer.js";
-import { freezeTime } from "../../tests/support/fakeClock.js";
+import { describe, expect, it } from "vitest";
 import { findingPostsById } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import {
@@ -12,97 +10,45 @@ import {
 } from "../../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { UnreadableConfigError } from "../configuration/index.js";
-import type { ManagedPost } from "./ports.js";
-import { refreshAllThreads } from "./rotation.js";
+import { refreshThreadConfig } from "./rotation.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
 
-const UNREADABLE_ERROR = new UnreadableConfigError("the stored thread configs cannot be read");
-
-describe(refreshAllThreads, (): void => {
+describe(refreshThreadConfig, (): void => {
     it(
-        "forgets every live post and its comment cap when no thread config is in force",
+        "publishes a live post for a thread config without one, stickied as it asks",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(2);
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            const fakes = createFakeRotationPorts([]);
-            fakes.livePosts.configNames.mockResolvedValue(["alpha", "beta"]);
-            fakes.livePosts.all.mockResolvedValue({ alpha: "t3_alpha", beta: "t3_beta" });
-
-            await refreshAllThreads(fakes.ports);
-
-            expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha", "beta"], ["t3_alpha", "t3_beta"]);
-            expect(logSpy).toHaveBeenNthCalledWith(
-                1,
-                "No thread configs are in force, so every live post is forgotten.",
-            );
-        },
-    );
-
-    it(
-        "fails and keeps every live post when the thread configs cannot be read",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(4);
-
-            const fakes = createFakeRotationPorts();
-            fakes.threadConfigs.mockRejectedValue(UNREADABLE_ERROR);
-            fakes.livePosts.all.mockResolvedValue({ alpha: "t3_alpha" });
-
-            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(UNREADABLE_ERROR);
-            expect(fakes.livePosts.forget).not.toHaveBeenCalled();
-            expect(fakes.posts.publish).not.toHaveBeenCalled();
-            // Configuration alerts moderators to unreadable thread configs itself.
-            expect(fakes.refreshFailureAlert.claim).not.toHaveBeenCalled();
-        },
-    );
-
-    it(
-        "publishes live posts for enabled thread configs one at a time, sticky first",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.hasAssertions();
-
-            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            const fakes = createFakeRotationPorts([LOOSE_CONFIG, DISABLED_CONFIG, STICKY_CONFIG]);
+            silenceConsole("log");
+            const fakes = createFakeRotationPorts([STICKY_CONFIG]);
             const stickyPost = newPost("t3_sticky");
-            const loosePost = newPost("t3_loose");
-            const stickySubmission = defer<ManagedPost>();
-            fakes.posts.publish.mockReturnValueOnce(stickySubmission.promise).mockResolvedValueOnce(loosePost.post);
-            fakes.posts.get.mockImplementation(findingPostsById([stickyPost.post, loosePost.post]));
+            fakes.posts.publish.mockResolvedValue(stickyPost.post);
+            fakes.posts.get.mockImplementation(findingPostsById([stickyPost.post]));
 
-            const refresh = refreshAllThreads(fakes.ports);
-            // While the sticky post's submission is pending, no other post may be published.
-            await vi.waitFor((): void => {
-                expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({
-                    title: "Sticky thread",
-                    body: "Sticky body",
-                });
+            await refreshThreadConfig("sticky-thread", fakes.ports);
+
+            expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({
+                title: "Sticky thread",
+                body: "Sticky body",
             });
-            stickySubmission.resolve(stickyPost.post);
-            await refresh;
-
-            expect(fakes.posts.publish).toHaveBeenNthCalledWith(2, { title: "Loose thread", body: "Loose body" });
-            expect(fakes.posts.publish).toHaveBeenCalledTimes(2);
             expect(stickyPost.sticky).toHaveBeenCalledExactlyOnceWith();
-            expect(loosePost.sticky).not.toHaveBeenCalled();
         },
     );
 
     it("rotates a live post that has reached its comment cap", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(3);
 
-        vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+        silenceConsole("log");
         const fakes = createFakeRotationPorts([STICKY_CONFIG]);
         fakes.livePosts.get.mockResolvedValue("t3_full");
         const full = fullPost("t3_full", 100);
         fakes.posts.get.mockResolvedValue(full.post);
         fakes.posts.publish.mockResolvedValue(newPost("t3_next").post);
 
-        await refreshAllThreads(fakes.ports);
+        await refreshThreadConfig("sticky-thread", fakes.ports);
 
         expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
         expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({ title: "Sticky thread", body: "Sticky body" });
@@ -115,13 +61,13 @@ describe(refreshAllThreads, (): void => {
         async (): Promise<void> => {
             expect.assertions(3);
 
-            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
+            silenceConsole("log");
             const fakes = createFakeRotationPorts([{ ...STICKY_CONFIG, body: "New body" }]);
             fakes.livePosts.get.mockResolvedValue("t3_live");
             const live = fullPost("t3_live", 10);
             fakes.posts.get.mockResolvedValue(live.post);
 
-            await refreshAllThreads(fakes.ports);
+            await refreshThreadConfig("sticky-thread", fakes.ports);
 
             expect(live.edit).toHaveBeenCalledExactlyOnceWith({ text: "New body" });
             expect(fakes.livePosts.storeCommentCap).toHaveBeenCalledExactlyOnceWith("t3_live", 100);
@@ -129,77 +75,63 @@ describe(refreshAllThreads, (): void => {
         },
     );
 
-    it("logs what the refresh did for each thread config", TEST_OPTIONS, async (): Promise<void> => {
+    it("logs what the refresh did", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
-        const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        const fakes = createFakeRotationPorts([STICKY_CONFIG, LOOSE_CONFIG]);
-        // The sticky thread has no live post yet; the loose one has an up-to-date live post below its comment cap.
-        fakes.livePosts.get.mockImplementation(
-            async (configName: string): Promise<string | undefined> =>
-                await Promise.resolve(configName === "loose-thread" ? "t3_loose" : undefined),
-        );
+        const logSpy = silenceConsole("log");
+        const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
+        fakes.livePosts.get.mockResolvedValue("t3_loose");
         fakes.posts.get.mockResolvedValue({ ...fullPost("t3_loose", 5).post, body: "Loose body" });
-        fakes.posts.publish.mockResolvedValue(newPost("t3_sticky").post);
 
-        await refreshAllThreads(fakes.ports);
+        await refreshThreadConfig("loose-thread", fakes.ports);
 
-        expect(logSpy).toHaveBeenLastCalledWith("Refresh finished for 2 thread configs: 1 published, 1 unchanged.");
+        expect(logSpy).toHaveBeenCalledWith("Refresh of thread config loose-thread finished: unchanged.");
+    });
+
+    it("forgets a thread config no longer in force instead of refreshing it", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const logSpy = silenceConsole("log");
+        const fakes = createFakeRotationPorts([DISABLED_CONFIG]);
+        fakes.livePosts.all.mockResolvedValue({ "disabled-thread": "t3_disabled" });
+
+        await refreshThreadConfig("disabled-thread", fakes.ports);
+
+        expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["disabled-thread"], ["t3_disabled"]);
+        expect(fakes.posts.publish).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            "Thread config disabled-thread is no longer in force, so it is forgotten.",
+        );
+    });
+
+    it("fails, touching nothing, when the thread configs cannot be read", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(3);
+
+        const fakes = createFakeRotationPorts();
+        const unreadable = new UnreadableConfigError("the stored thread configs cannot be read");
+        fakes.threadConfigs.mockRejectedValue(unreadable);
+
+        await expect(refreshThreadConfig("sticky-thread", fakes.ports)).rejects.toThrow(unreadable);
+        expect(fakes.livePosts.forget).not.toHaveBeenCalled();
+        // Configuration alerts moderators to unreadable thread configs itself.
+        expect(fakes.notifyModerators).not.toHaveBeenCalled();
     });
 
     it(
-        "keeps refreshing the other thread configs when one fails, schedules a retry, then reports the failure",
+        "leaves recording and scheduling to the invocation already refreshing the thread config",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(4);
+            expect.assertions(3);
 
-            freezeTime("2026-04-21T10:00:00Z");
-            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            const errorSpy = silenceConsole("error");
-            const fakes = createFakeRotationPorts([STICKY_CONFIG, LOOSE_CONFIG]);
-            const postGone = new Error("post t3_gone not found");
-            fakes.livePosts.get.mockImplementation(
-                async (configName: string): Promise<string | undefined> =>
-                    await Promise.resolve(configName === "sticky-thread" ? "t3_gone" : undefined),
-            );
-            fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_gone", "loose-thread": "t3_loose" });
-            const loosePost = newPost("t3_loose");
-            fakes.posts.get.mockImplementation(
-                async (postId: string): Promise<ManagedPost> =>
-                    await (postId === "t3_gone" ? Promise.reject(postGone) : Promise.resolve(loosePost.post)),
-            );
-            fakes.posts.publish.mockResolvedValue(loosePost.post);
+            silenceConsole("log");
+            const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+            fakes.threadLocks.tryLock.mockResolvedValue(false);
 
-            await expect(refreshAllThreads(fakes.ports)).rejects.toThrow(
-                new Error("Could not refresh thread config sticky-thread: post t3_gone not found"),
-            );
-            expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({ title: "Loose thread", body: "Loose body" });
-            // Neither fixture thread config has a schedule, so the retry is the next refresh.
-            expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:15:05.000Z"));
-            expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
-                "Could not refresh thread config sticky-thread:",
-                postGone,
-            );
-        },
-    );
+            await refreshThreadConfig("sticky-thread", fakes.ports);
 
-    it(
-        "keeps the live post of a thread config added while it ran, reading the thread configs again",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(1);
-
-            vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-            const fakes = createFakeRotationPorts([LOOSE_CONFIG]);
-            fakes.livePosts.get.mockResolvedValue("t3_loose");
-            fakes.posts.get.mockResolvedValue({ ...fullPost("t3_loose", 5).post, body: "Loose body" });
-            // Another invocation published the sticky thread config's live post after this refresh read the configs.
-            fakes.livePosts.configNames.mockResolvedValue(["loose-thread", "sticky-thread"]);
-            fakes.threadConfigs.mockResolvedValueOnce([LOOSE_CONFIG]).mockResolvedValue([LOOSE_CONFIG, STICKY_CONFIG]);
-
-            await refreshAllThreads(fakes.ports);
-
-            expect(fakes.livePosts.forget).not.toHaveBeenCalled();
+            expect(fakes.appliedThreadConfigs.record).not.toHaveBeenCalled();
+            expect(fakes.refreshJobs.replaceFor).not.toHaveBeenCalled();
+            expect(fakes.refreshStatus.recordSuccess).not.toHaveBeenCalled();
         },
     );
 });

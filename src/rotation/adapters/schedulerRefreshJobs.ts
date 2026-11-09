@@ -1,8 +1,9 @@
 import type { SchedulerPort } from "../../platform/index.js";
-import type { RefreshJobs } from "../ports.js";
+import type { PendingRefresh, RefreshJobs } from "../ports.js";
 
-// Devvit's scheduler stores these job names with every scheduled job in installed subreddits; keep them stable.
-// src/main.ts registers a handler under each.
+// Devvit's scheduler stores these job names, and each refresh job's data, with every scheduled job in installed
+// subreddits; keep them stable. devvit.json declares a task under each name. A refresh job's data names its thread
+// config as `configName`; jobs scheduled before refreshes were per thread config have none.
 export const REFRESH_JOB_NAME = "RefreshStickyPosts";
 export const REFRESH_CHECK_JOB_NAME = "RefreshCheck";
 
@@ -12,15 +13,27 @@ const REFRESH_CHECK_CRON = "43 * * * *";
 
 export type RefreshScheduler = SchedulerPort<"cancelJob" | "listJobs" | "runJob">;
 
-/** Cancels the jobs named `name`, except the one with the ID `keepJobId`. */
-async function cancelJobsNamed(scheduler: RefreshScheduler, name: string, keepJobId?: string): Promise<void> {
+/** A job as listed, with the fields this adapter reads. */
+type ListedJob = Readonly<{ id: string; name: string; data?: Readonly<Record<string, unknown>> | undefined }>;
+
+/** The thread config a refresh job refreshes, if its data names one. */
+function configNameOf(job: ListedJob): string | undefined {
+    const configName = job.data?.["configName"];
+    return typeof configName === "string" ? configName : undefined;
+}
+
+/** Picks the refresh jobs of the thread config named `configName`, or, when undefined, those that name none. */
+function isRefreshOf(configName: string | undefined): (job: ListedJob) => boolean {
+    return (job: ListedJob): boolean => job.name === REFRESH_JOB_NAME && configNameOf(job) === configName;
+}
+
+/** Cancels the jobs `cancels` picks. */
+async function cancelJobs(scheduler: RefreshScheduler, cancels: (job: ListedJob) => boolean): Promise<void> {
     const jobs = await scheduler.listJobs();
     await Promise.all(
-        jobs
-            .filter((job: Readonly<{ id: string; name: string }>): boolean => job.name === name && job.id !== keepJobId)
-            .map(async (job: Readonly<{ id: string }>): Promise<void> => {
-                await scheduler.cancelJob(job.id);
-            }),
+        jobs.filter(cancels).map(async (job: Readonly<{ id: string }>): Promise<void> => {
+            await scheduler.cancelJob(job.id);
+        }),
     );
 }
 
@@ -28,30 +41,39 @@ function isPendingRefresh<Job extends Readonly<{ name: string }>>(job: Job): job
     return job.name === REFRESH_JOB_NAME && "runAt" in job;
 }
 
-async function listPendingRunTimes(scheduler: RefreshScheduler): Promise<readonly Date[]> {
-    const runTimes = (await scheduler.listJobs())
+async function listPending(scheduler: RefreshScheduler): Promise<readonly PendingRefresh[]> {
+    const pending = (await scheduler.listJobs())
         .filter(isPendingRefresh)
-        .map((job: Readonly<{ runAt: Date }>): Date => job.runAt);
-    return runTimes.sort((first: Date, second: Date): number => first.getTime() - second.getTime());
+        .map((job: ListedJob & Readonly<{ runAt: Date }>): PendingRefresh => ({
+            configName: configNameOf(job),
+            runAt: job.runAt,
+        }));
+    return pending.sort(
+        (first: PendingRefresh, second: PendingRefresh): number => first.runAt.getTime() - second.runAt.getTime(),
+    );
 }
 
-/** Refreshes as jobs in Devvit's scheduler, leaving any other jobs alone. */
+/** Refreshes as jobs in Devvit's scheduler, one per thread config, leaving any other jobs alone. */
 export function schedulerRefreshJobs(scheduler: RefreshScheduler): RefreshJobs {
     return {
-        pendingRunTimes: async (): Promise<readonly Date[]> => await listPendingRunTimes(scheduler),
-        replaceWith: async (runAt: Date): Promise<void> => {
-            const jobId = await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt });
-            await cancelJobsNamed(scheduler, REFRESH_JOB_NAME, jobId);
+        pending: async (): Promise<readonly PendingRefresh[]> => await listPending(scheduler),
+        replaceFor: async (configName: string, runAt: Date): Promise<void> => {
+            const jobId = await scheduler.runJob({ name: REFRESH_JOB_NAME, runAt, data: { configName } });
+            const isOwn = isRefreshOf(configName);
+            await cancelJobs(scheduler, (job: ListedJob): boolean => isOwn(job) && job.id !== jobId);
         },
-        cancelAll: async (): Promise<void> => {
-            await cancelJobsNamed(scheduler, REFRESH_JOB_NAME);
+        cancelFor: async (configName: string): Promise<void> => {
+            await cancelJobs(scheduler, isRefreshOf(configName));
+        },
+        cancelUnassigned: async (): Promise<void> => {
+            await cancelJobs(scheduler, isRefreshOf(undefined));
         },
         hasHourlyCheck: async (): Promise<boolean> =>
             (await scheduler.listJobs()).some(
                 (job: Readonly<{ name: string }>): boolean => job.name === REFRESH_CHECK_JOB_NAME,
             ),
         startHourlyCheck: async (): Promise<void> => {
-            await cancelJobsNamed(scheduler, REFRESH_CHECK_JOB_NAME);
+            await cancelJobs(scheduler, (job: ListedJob): boolean => job.name === REFRESH_CHECK_JOB_NAME);
             await scheduler.runJob({ name: REFRESH_CHECK_JOB_NAME, cron: REFRESH_CHECK_CRON });
         },
     };

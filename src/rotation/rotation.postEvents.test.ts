@@ -4,11 +4,11 @@ import { findingPostsById } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import {
     commentOn,
-    failureAlert,
     fullPost,
     newPost,
     PUBLISH_ERROR,
     STICKY_CONFIG,
+    threadFailureAlert,
 } from "../../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { forgetDeletedPost, rotateIfCapReached } from "./rotation.js";
@@ -74,7 +74,9 @@ describe(rotateIfCapReached, (): void => {
         fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
 
         await expect(rotateIfCapReached(commentOn("t3_full"), fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(failureAlert("Reddit is down"));
+        expect(fakes.notifyModerators).toHaveBeenCalledExactlyOnceWith(
+            threadFailureAlert("sticky-thread", "Reddit is down"),
+        );
     });
 });
 
@@ -149,7 +151,10 @@ describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
         fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
 
         await expect(rotateIfCapReached(commentOn("t3_full"), fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-        expect(fakes.refreshJobs.replaceWith).toHaveBeenCalledExactlyOnceWith(new Date("2026-04-21T10:15:05.000Z"));
+        expect(fakes.refreshJobs.replaceFor).toHaveBeenCalledExactlyOnceWith(
+            "sticky-thread",
+            new Date("2026-04-21T10:15:05.000Z"),
+        );
     });
 
     it(
@@ -166,10 +171,12 @@ describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
             fakes.livePosts.get.mockResolvedValue("t3_full");
             fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
             fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
-            fakes.refreshJobs.pendingRunTimes.mockResolvedValue([new Date("2026-04-21T10:15:05Z")]);
+            fakes.refreshJobs.pending.mockResolvedValue([
+                { configName: "sticky-thread", runAt: new Date("2026-04-21T10:15:05Z") },
+            ]);
 
             await expect(rotateIfCapReached(commentOn("t3_full"), fakes.ports)).rejects.toBe(PUBLISH_ERROR);
-            expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
+            expect(fakes.refreshJobs.replaceFor).not.toHaveBeenCalled();
         },
     );
 
@@ -185,8 +192,8 @@ describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
 
         await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
 
-        expect(fakes.refreshJobs.replaceWith).not.toHaveBeenCalled();
-        expect(fakes.refreshJobs.cancelAll).not.toHaveBeenCalled();
+        expect(fakes.refreshJobs.replaceFor).not.toHaveBeenCalled();
+        expect(fakes.refreshJobs.cancelFor).not.toHaveBeenCalled();
     });
 
     it(
@@ -204,7 +211,7 @@ describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
             fakes.livePosts.get.mockResolvedValue("t3_full");
             fakes.posts.get.mockResolvedValue(fullPost("t3_full", 100).post);
             fakes.posts.publish.mockRejectedValue(PUBLISH_ERROR);
-            fakes.refreshJobs.pendingRunTimes.mockRejectedValue(schedulerError);
+            fakes.refreshJobs.pending.mockRejectedValue(schedulerError);
 
             await expect(rotateIfCapReached(commentOn("t3_full"), fakes.ports)).rejects.toBe(PUBLISH_ERROR);
             expect(errorSpy).toHaveBeenLastCalledWith(
@@ -216,16 +223,24 @@ describe("rotateIfCapReached, beyond the comment cap itself", (): void => {
 });
 
 describe(forgetDeletedPost, (): void => {
-    it("forgets a deleted live post and its comment cap", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+    it(
+        "forgets a deleted live post and its comment cap, and logs that the refresh check replaces it",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
 
-        const fakes = createFakeRotationPorts();
-        fakes.livePosts.all.mockResolvedValue({ alpha: "t3_alpha", beta: "t3_beta" });
+            const logSpy = silenceConsole("log");
+            const fakes = createFakeRotationPorts();
+            fakes.livePosts.all.mockResolvedValue({ alpha: "t3_alpha", beta: "t3_beta" });
 
-        await forgetDeletedPost("t3_alpha", fakes.ports.livePosts);
+            await forgetDeletedPost("t3_alpha", fakes.ports.livePosts);
 
-        expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha"], ["t3_alpha"]);
-    });
+            expect(fakes.livePosts.forget).toHaveBeenCalledExactlyOnceWith(["alpha"], ["t3_alpha"]);
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Live post t3_alpha of thread config alpha was removed or deleted, so it is forgotten; the next refresh check, within the hour, publishes its replacement.",
+            );
+        },
+    );
 
     it("ignores a deleted post that is not a live post", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);

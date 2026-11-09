@@ -2,7 +2,7 @@ import { redis } from "@devvit/web/server";
 import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
-import { getRefreshStatus, refreshAllThreads } from "../src/rotation/index.js";
+import { getRefreshStatus, refreshThreadConfig } from "../src/rotation/index.js";
 import { HARNESS_CONTEXT, submitPostAt } from "./support/devvitHarness.js";
 import { it as devvitIt } from "./support/devvitTest.js";
 import { freezeTime } from "./support/fakeClock.js";
@@ -37,12 +37,14 @@ describe("the refresh status", (): void => {
         vi.setSystemTime(new Date("2026-04-21T10:00:00Z"));
         const ports = rotationPorts(HARNESS_CONTEXT);
 
-        await refreshAllThreads(ports);
+        await refreshThreadConfig("daily-thread", ports);
 
-        await expect(getRefreshStatus(ports.refreshStatus)).resolves.toStrictEqual({
-            lastRefresh: { at: new Date("2026-04-21T10:00:00Z"), outcome: "succeeded" },
-            lastSuccessAt: new Date("2026-04-21T10:00:00Z"),
-            nextRefreshAt: new Date("2026-04-21T12:30:05Z"),
+        await expect(getRefreshStatus(ports.refreshStatus, ["daily-thread"])).resolves.toStrictEqual({
+            "daily-thread": {
+                lastRefresh: { at: new Date("2026-04-21T10:00:00Z"), outcome: "succeeded" },
+                lastSuccessAt: new Date("2026-04-21T10:00:00Z"),
+                nextRefreshAt: new Date("2026-04-21T12:30:05Z"),
+            },
         });
     });
 });

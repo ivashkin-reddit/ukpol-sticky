@@ -7,28 +7,12 @@ import type { FakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
 import { silenceConsole } from "../tests/support/silenceConsole.js";
 import { configurationPorts, rotationPorts } from "./composition.js";
 import type * as Composition from "./composition.js";
-import { applyConfigPageRevision, installConfigPage } from "./configuration/index.js";
+import { applyConfigPageRevision } from "./configuration/index.js";
 import type * as Configuration from "./configuration/index.js";
 import type { ConfigPageOutcome, ConfigurationPorts } from "./configuration/index.js";
-import {
-    ensureRefreshPending,
-    forgetDeletedPost,
-    refreshAllThreads,
-    requestRefresh,
-    rotateIfCapReached,
-    scheduleNextRefresh,
-    startRefreshCheck,
-} from "./rotation/index.js";
+import { forgetDeletedPost, requestEveryThreadRefresh, rotateIfCapReached } from "./rotation/index.js";
 import type * as Rotation from "./rotation/index.js";
-import {
-    onAppInstall,
-    onAppUpgrade,
-    onCommentCreate,
-    onModAction,
-    onPostDelete,
-    onRefreshCheck,
-    onRefreshJob,
-} from "./triggers.js";
+import { onCommentCreate, onModAction, onPostDelete } from "./triggers.js";
 import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent } from "./triggers.js";
 
 vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
@@ -38,17 +22,12 @@ vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
 
 vi.mock(import("./configuration/index.js"), (): Partial<typeof Configuration> => ({
     applyConfigPageRevision: vi.fn<typeof applyConfigPageRevision>(),
-    installConfigPage: vi.fn<typeof installConfigPage>(),
 }));
 
 vi.mock(import("./rotation/index.js"), (): Partial<typeof Rotation> => ({
-    ensureRefreshPending: vi.fn<typeof ensureRefreshPending>(),
     forgetDeletedPost: vi.fn<typeof forgetDeletedPost>(),
-    refreshAllThreads: vi.fn<typeof refreshAllThreads>(),
-    requestRefresh: vi.fn<typeof requestRefresh>(),
+    requestEveryThreadRefresh: vi.fn<typeof requestEveryThreadRefresh>(),
     rotateIfCapReached: vi.fn<typeof rotateIfCapReached>(),
-    scheduleNextRefresh: vi.fn<typeof scheduleNextRefresh>(),
-    startRefreshCheck: vi.fn<typeof startRefreshCheck>(),
 }));
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -109,7 +88,10 @@ describe(onModAction, (): void => {
             expect(vi.mocked(configurationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
             expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith("mod_user", configuration);
             expect(vi.mocked(rotationPorts)).toHaveBeenCalledExactlyOnceWith(devvit.context);
-            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
+            expect(vi.mocked(requestEveryThreadRefresh)).toHaveBeenCalledExactlyOnceWith(
+                rotation.ports,
+                "thread configs stored since the last refresh",
+            );
         },
     );
 
@@ -122,7 +104,7 @@ describe(onModAction, (): void => {
             vi.mocked(applyConfigPageRevision).mockResolvedValue(outcome);
             await onModAction(WIKI_REVISION, wired().devvit.context);
 
-            expect(vi.mocked(requestRefresh)).not.toHaveBeenCalled();
+            expect(vi.mocked(requestEveryThreadRefresh)).not.toHaveBeenCalled();
         },
     );
 });
@@ -179,7 +161,7 @@ describe(onCommentCreate, (): void => {
     });
 });
 
-describe("lifecycle and job triggers", (): void => {
+describe(onPostDelete, (): void => {
     it("forgets a deleted post", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 
@@ -200,94 +182,6 @@ describe("lifecycle and job triggers", (): void => {
 
             expect(warnSpy).toHaveBeenCalledExactlyOnceWith("Ignoring a PostDelete event without a post ID.");
             expect(vi.mocked(forgetDeletedPost)).not.toHaveBeenCalled();
-        },
-    );
-
-    it(
-        "starts the refresh check, installs the config page, then applies it, on install",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(4);
-
-            const { devvit, configuration, rotation } = wired();
-            await onAppInstall({}, devvit.context);
-
-            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
-            expect(vi.mocked(installConfigPage)).toHaveBeenCalledExactlyOnceWith(configuration.page);
-            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(installConfigPage));
-            // A reinstall finds the moderators' thread configs on the page: they apply now, not at the next save.
-            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledAfter(vi.mocked(installConfigPage));
-        },
-    );
-
-    it(
-        "starts the refresh check, schedules the next refresh, then applies the config page, on upgrade",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(5);
-
-            const { devvit, configuration, rotation } = wired();
-            await onAppUpgrade({}, devvit.context);
-
-            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
-            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith(undefined, configuration);
-            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(scheduleNextRefresh));
-            // A refresh the page requests must come after scheduleNextRefresh, or the next rotation time replaces it.
-            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledBefore(vi.mocked(applyConfigPageRevision));
-        },
-    );
-
-    it(
-        "requests a refresh when the upgrade stores thread configs no trigger applied",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(2);
-
-            const { devvit, rotation } = wired();
-            vi.mocked(applyConfigPageRevision).mockResolvedValue("stored");
-            await onAppUpgrade({}, devvit.context);
-
-            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-            expect(vi.mocked(scheduleNextRefresh)).toHaveBeenCalledBefore(vi.mocked(requestRefresh));
-        },
-    );
-
-    it("refreshes every thread when the refresh job runs", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
-
-        const { devvit, rotation } = wired();
-        await onRefreshJob({}, devvit.context);
-
-        expect(vi.mocked(refreshAllThreads)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-    });
-
-    it(
-        "makes sure a refresh is pending, then applies a config page revision no trigger applied, when the refresh check runs",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(3);
-
-            const { devvit, configuration, rotation } = wired();
-            await onRefreshCheck({}, devvit.context);
-
-            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith(undefined, configuration);
-            expect(vi.mocked(ensureRefreshPending)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-            expect(vi.mocked(ensureRefreshPending)).toHaveBeenCalledBefore(vi.mocked(applyConfigPageRevision));
-        },
-    );
-
-    it(
-        "requests a refresh when the refresh check stores thread configs no trigger applied",
-        TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(1);
-
-            const { devvit, rotation } = wired();
-            vi.mocked(applyConfigPageRevision).mockResolvedValue("stored");
-            await onRefreshCheck({}, devvit.context);
-
-            expect(vi.mocked(requestRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
         },
     );
 });
