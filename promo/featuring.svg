@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000">
+  <title>Sticky Manager: scheduled megathreads, pinned and rotated for you</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16294A" />
+      <stop offset="1" stop-color="#0B1526" />
+    </linearGradient>
+    <radialGradient id="tealGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2DD4BF" stop-opacity="0.14" />
+      <stop offset="1" stop-color="#2DD4BF" stop-opacity="0" />
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+  <rect width="1500" height="1000" fill="url(#background)" />
+  <circle cx="1220" cy="260" r="620" fill="url(#tealGlow)" />
+
+  <!-- The icon's mark: a circular arrow around a pushpin. -->
+  <g transform="translate(84.95 177.72) scale(0.1693)">
+    <path d="M 764.8 299.9 A 330 330 0 1 1 454.7 187.0" fill="none" stroke="#2DD4BF" stroke-width="56" stroke-linecap="round" />
+    <path d="M 432.4 117.8 L 533.5 173.1 L 457.4 259.6 Z" fill="#2DD4BF" stroke="#2DD4BF" stroke-width="12" stroke-linejoin="round" />
+    <g transform="translate(478 540) rotate(35)">
+      <line x1="0" y1="-20" x2="0" y2="186" stroke="#F8FAFC" stroke-width="22" stroke-linecap="round" />
+      <path d="M -48 -166 H 48 L 58 -58 H -58 Z" fill="#F59E0B" />
+      <rect x="-118" y="-64" width="236" height="46" rx="20" fill="#FBBF24" />
+      <rect x="-82" y="-214" width="164" height="52" rx="22" fill="#FBBF24" />
+    </g>
+  </g>
+
+  <g font-family="'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif">
+    <!-- The name, what it does, and three features. -->
+    <g transform="translate(0 46)">
+      <text x="104" y="400" font-size="88" font-weight="700" fill="#F8FAFC">Sticky Manager</text>
+      <text x="110" y="462" font-size="34" fill="#B6C2D3">Recurring megathreads, posted,</text>
+      <text x="110" y="506" font-size="34" fill="#B6C2D3">pinned and rotated on schedule.</text>
+
+      <g font-size="28" fill="#E2E8F0">
+        <circle cx="128" cy="591" r="17" fill="#2DD4BF" />
+        <path d="M 120 591 l 6 6 l 11 -12" fill="none" stroke="#0B1526" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="164" y="600">Daily or weekly, at the time you set</text>
+        <circle cx="128" cy="655" r="17" fill="#2DD4BF" />
+        <path d="M 120 655 l 6 6 l 11 -12" fill="none" stroke="#0B1526" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="164" y="664">Rotates early when comments hit a cap</text>
+        <circle cx="128" cy="719" r="17" fill="#2DD4BF" />
+        <path d="M 120 719 l 6 6 l 11 -12" fill="none" stroke="#0B1526" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="164" y="728">Locks the old thread, links the new one</text>
+      </g>
+    </g>
+
+    <g transform="translate(0 12)">
+      <!-- The old megathread: locked, its end note linking the new one. -->
+      <rect x="930" y="170" width="470" height="270" rx="28" fill="#172741" stroke="#2A3E5E" stroke-width="2" />
+      <text x="966" y="232" font-size="26" font-weight="600" fill="#B6C2D3">Daily megathread · 08/11</text>
+      <rect x="966" y="254" width="122" height="38" rx="19" fill="#24395C" />
+      <path d="M 986 271 v -4 a 6 6 0 0 1 12 0 v 4" fill="none" stroke="#B6C2D3" stroke-width="2.5" />
+      <rect x="982" y="270" width="20" height="14" rx="3" fill="#B6C2D3" />
+      <text x="1012" y="280" font-size="18" fill="#B6C2D3">Locked</text>
+      <rect x="966" y="314" width="398" height="96" rx="18" fill="#1F3252" stroke="#2DD4BF" stroke-opacity="0.35" stroke-width="2" />
+      <text x="990" y="352" font-size="20" fill="#E2E8F0">This megathread has ended.</text>
+      <text x="990" y="386" font-size="20" font-weight="600" fill="#2DD4BF">Continue in the new thread →</text>
+
+      <!-- The rotation, from the old megathread to the new. -->
+      <path d="M 1405 345 C 1470 390, 1470 520, 1396 567" fill="none" stroke="#2DD4BF" stroke-width="8" stroke-linecap="round" />
+      <path d="M 1376.6 580.7 L 1409.3 576.1 L 1394.1 552.7 Z" fill="#2DD4BF" stroke="#2DD4BF" stroke-width="4" stroke-linejoin="round" />
+
+      <!-- The new megathread: pinned. -->
+      <g filter="url(#shadow)">
+        <rect x="860" y="490" width="520" height="320" rx="30" fill="#1E3354" stroke="#3A5683" stroke-width="2" />
+      </g>
+      <rect x="896" y="528" width="118" height="40" rx="20" fill="#2DD4BF" />
+      <text x="955" y="555" font-size="19" font-weight="700" fill="#0B1526" text-anchor="middle">Pinned</text>
+      <text x="896" y="622" font-size="30" font-weight="700" fill="#F8FAFC">Daily megathread · 09/11</text>
+      <rect x="896" y="652" width="440" height="14" rx="7" fill="#2E4569" />
+      <rect x="896" y="680" width="400" height="14" rx="7" fill="#2E4569" />
+      <rect x="896" y="708" width="300" height="14" rx="7" fill="#2E4569" />
+      <text x="896" y="774" font-size="18" fill="#93A4BD">Posted 08:00 · 128 comments</text>
+      <g transform="translate(1336 512) rotate(35) scale(0.32)">
+        <line x1="0" y1="-20" x2="0" y2="186" stroke="#F8FAFC" stroke-width="22" stroke-linecap="round" />
+        <path d="M -48 -166 H 48 L 58 -58 H -58 Z" fill="#F59E0B" />
+        <rect x="-118" y="-64" width="236" height="46" rx="20" fill="#FBBF24" />
+        <rect x="-82" y="-214" width="164" height="52" rx="22" fill="#FBBF24" />
+      </g>
+    </g>
+  </g>
+</svg>
