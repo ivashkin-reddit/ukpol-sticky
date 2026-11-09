@@ -14,10 +14,12 @@ export type {
     RefreshJobs,
     RefreshStatus,
     RefreshStatusStore,
+    RetiredRefreshRecords,
     RotationPorts,
     ThreadLocks,
 } from "./ports.js";
 export { checkRefreshes } from "./refreshCheck.js";
+export { migrateRefreshRecords } from "./refreshRecordsMigration.js";
 export {
     getRefreshStatus,
     requestEveryThreadRefresh,

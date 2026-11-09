@@ -10,6 +10,7 @@ import type {
     Posts,
     RefreshJobs,
     RefreshStatusStore,
+    RetiredRefreshRecords,
     RotationPorts,
     ThreadLocks,
 } from "../../src/rotation/index.js";
@@ -60,6 +61,10 @@ export interface FakeRotationPorts {
         recordFailure: Mock<RefreshStatusStore["recordFailure"]>;
         recordNextRefresh: Mock<RefreshStatusStore["recordNextRefresh"]>;
         forget: Mock<RefreshStatusStore["forget"]>;
+    }>;
+    readonly retiredRefreshRecords: Readonly<{
+        readAppliedThreadConfigs: Mock<RetiredRefreshRecords["readAppliedThreadConfigs"]>;
+        delete: Mock<RetiredRefreshRecords["delete"]>;
     }>;
     readonly threadConfigs: Mock<LoadThreadConfigs>;
     /** The latch of the alert about the named thread config's failed refreshes, the same one each time. */
@@ -211,6 +216,12 @@ export function createFakeRotationPorts(
         refreshFailureAlert: createFakeAlertLatch(),
         refreshJobs: createFakeRefreshJobs(configs),
         refreshStatus: createFakeRefreshStatus(),
+        retiredRefreshRecords: {
+            readAppliedThreadConfigs: vi
+                .fn<RetiredRefreshRecords["readAppliedThreadConfigs"]>()
+                .mockResolvedValue(undefined),
+            delete: vi.fn<RetiredRefreshRecords["delete"]>().mockResolvedValue(undefined),
+        },
         threadConfigs: vi.fn<LoadThreadConfigs>().mockResolvedValue(configs),
         threadFailureAlert: createFakeThreadFailureAlerts(),
         threadLocks: createFakeThreadLocks(),
@@ -225,6 +236,7 @@ export function createFakeRotationPorts(
             refreshFailureAlert: fakes.refreshFailureAlert.latch,
             refreshJobs: fakes.refreshJobs,
             refreshStatus: fakes.refreshStatus,
+            retiredRefreshRecords: fakes.retiredRefreshRecords,
             threadConfigs: fakes.threadConfigs,
             threadFailureAlert: (configName: string): AlertLatch => fakes.threadFailureAlert(configName).latch,
             threadLocks: fakes.threadLocks,

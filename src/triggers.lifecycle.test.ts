@@ -11,6 +11,7 @@ import type * as Configuration from "./configuration/index.js";
 import type { ConfigurationPorts } from "./configuration/index.js";
 import {
     checkRefreshes,
+    migrateRefreshRecords,
     refreshThreadConfig,
     requestEveryThreadRefresh,
     scheduleEveryThreadRefresh,
@@ -33,6 +34,7 @@ vi.mock(import("./configuration/index.js"), (): Partial<typeof Configuration> =>
 
 vi.mock(import("./rotation/index.js"), (): Partial<typeof Rotation> => ({
     checkRefreshes: vi.fn<typeof checkRefreshes>(),
+    migrateRefreshRecords: vi.fn<typeof migrateRefreshRecords>(),
     refreshThreadConfig: vi.fn<typeof refreshThreadConfig>(),
     requestEveryThreadRefresh: vi.fn<typeof requestEveryThreadRefresh>(),
     scheduleEveryThreadRefresh: vi.fn<typeof scheduleEveryThreadRefresh>(),
@@ -77,22 +79,33 @@ describe("install and upgrade", (): void => {
     );
 
     it(
-        "starts the refresh check, schedules each thread config's next refresh, then applies the config page, on upgrade",
+        "starts the refresh check, migrates the old records, then schedules each thread config's next refresh, on upgrade",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(5);
 
-            const { devvit, configuration, rotation } = wired();
+            const { devvit, rotation } = wired();
             await onAppUpgrade({}, devvit.context);
 
             expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledExactlyOnceWith(rotation.ports.refreshJobs);
+            expect(vi.mocked(migrateRefreshRecords)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
             expect(vi.mocked(scheduleEveryThreadRefresh)).toHaveBeenCalledExactlyOnceWith(rotation.ports);
-            expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith(undefined, configuration);
-            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(scheduleEveryThreadRefresh));
-            // A refresh the page requests must come after scheduleEveryThreadRefresh, or a rotation time replaces it.
-            expect(vi.mocked(scheduleEveryThreadRefresh)).toHaveBeenCalledBefore(vi.mocked(applyConfigPageRevision));
+            expect(vi.mocked(startRefreshCheck)).toHaveBeenCalledBefore(vi.mocked(migrateRefreshRecords));
+            // Migrated first, or every thread config would read as unapplied and be refreshed at once.
+            expect(vi.mocked(migrateRefreshRecords)).toHaveBeenCalledBefore(vi.mocked(scheduleEveryThreadRefresh));
         },
     );
+
+    it("applies the config page last, on upgrade", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        const { devvit, configuration } = wired();
+        await onAppUpgrade({}, devvit.context);
+
+        expect(vi.mocked(applyConfigPageRevision)).toHaveBeenCalledExactlyOnceWith(undefined, configuration);
+        // A refresh the page requests must come after scheduleEveryThreadRefresh, or a rotation time replaces it.
+        expect(vi.mocked(scheduleEveryThreadRefresh)).toHaveBeenCalledBefore(vi.mocked(applyConfigPageRevision));
+    });
 
     it(
         "requests a refresh when the upgrade stores thread configs no trigger applied",

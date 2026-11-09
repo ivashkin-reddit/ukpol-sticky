@@ -17,6 +17,8 @@ import { redisLivePosts } from "./rotation/adapters/redisLivePosts.js";
 import type { LivePostsRedis } from "./rotation/adapters/redisLivePosts.js";
 import { redisRefreshStatus } from "./rotation/adapters/redisRefreshStatus.js";
 import type { RefreshStatusRedis } from "./rotation/adapters/redisRefreshStatus.js";
+import { redisRetiredRefreshRecords } from "./rotation/adapters/redisRetiredRefreshRecords.js";
+import type { RetiredRefreshRecordsRedis } from "./rotation/adapters/redisRetiredRefreshRecords.js";
 import { redisThreadLocks } from "./rotation/adapters/redisThreadLocks.js";
 import type { ThreadLocksRedis } from "./rotation/adapters/redisThreadLocks.js";
 import { schedulerRefreshJobs } from "./rotation/adapters/schedulerRefreshJobs.js";
@@ -39,7 +41,11 @@ export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 export type RotationContext = ConfigReadContext &
     RedditPostsContext &
     Readonly<{
-        redis: AppliedThreadConfigsRedis & LivePostsRedis & RefreshStatusRedis & ThreadLocksRedis;
+        redis: AppliedThreadConfigsRedis &
+            LivePostsRedis &
+            RefreshStatusRedis &
+            RetiredRefreshRecordsRedis &
+            ThreadLocksRedis;
         scheduler: RefreshScheduler;
     }>;
 
@@ -68,6 +74,7 @@ export function rotationPorts(context: RotationContext): RotationPorts {
         refreshFailureAlert: redisAlertLatch(context.redis, REFRESH_FAILURE_ALERT_KEY),
         refreshJobs: schedulerRefreshJobs(context.scheduler),
         refreshStatus: redisRefreshStatus(context.redis),
+        retiredRefreshRecords: redisRetiredRefreshRecords(context.redis),
         threadConfigs: async (): Promise<readonly ThreadConfig[]> => await getThreadConfigs(configRead),
         threadFailureAlert: (configName: string): AlertLatch =>
             redisAlertLatch(context.redis, `${THREAD_FAILURE_ALERT_KEY_PREFIX}${configName}`),

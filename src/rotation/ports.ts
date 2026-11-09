@@ -150,6 +150,17 @@ export interface AppliedThreadConfigs {
     readonly forget: (configNames: readonly string[]) => Promise<void>;
 }
 
+/**
+ * What refreshes recorded for all thread configs at once, before they were per thread config. The upgrade migrates it,
+ * then deletes it; nothing writes it any more.
+ */
+export interface RetiredRefreshRecords {
+    /** The thread configs the last refresh of all applied, as JSON; undefined when none is recorded. */
+    readonly readAppliedThreadConfigs: () => Promise<string | undefined>;
+    /** Deletes the record of applied thread configs and the refresh status kept for all thread configs. */
+    readonly delete: () => Promise<void>;
+}
+
 /** Every port the rotation use cases take; each use case declares the subset it uses. */
 export interface RotationPorts {
     readonly appliedThreadConfigs: AppliedThreadConfigs;
@@ -160,6 +171,7 @@ export interface RotationPorts {
     readonly refreshFailureAlert: AlertLatch;
     readonly refreshJobs: RefreshJobs;
     readonly refreshStatus: RefreshStatusStore;
+    readonly retiredRefreshRecords: RetiredRefreshRecords;
     readonly threadConfigs: LoadThreadConfigs;
     /** Keeps the alert about a thread config's failed refreshes to one until it refreshes successfully again. */
     readonly threadFailureAlert: (configName: string) => AlertLatch;

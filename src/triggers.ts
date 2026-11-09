@@ -4,6 +4,7 @@ import { applyConfigPageRevision, installConfigPage } from "./configuration/inde
 import {
     checkRefreshes,
     forgetDeletedPost,
+    migrateRefreshRecords,
     refreshThreadConfig,
     requestEveryThreadRefresh,
     rotateIfCapReached,
@@ -118,6 +119,8 @@ export async function onAppInstall(_event: unknown, context: ConfigurationContex
 export async function onAppUpgrade(_event: unknown, context: ConfigurationContext & RotationContext): Promise<void> {
     const ports = rotationPorts(context);
     await startRefreshCheck(ports.refreshJobs);
+    // Before scheduling, or every thread config would read as unapplied and be refreshed at once.
+    await migrateRefreshRecords(ports);
     await scheduleEveryThreadRefresh(ports);
     // Last, so a refresh it requests for newly stored thread configs is not replaced by a rotation time.
     await applyConfigPage(undefined, context);
