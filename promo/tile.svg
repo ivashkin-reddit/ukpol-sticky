@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="256" viewBox="0 0 560 256">
+  <title>Sticky Manager</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16294A" />
+      <stop offset="1" stop-color="#0B1526" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2DD4BF" stop-opacity="0.16" />
+      <stop offset="1" stop-color="#2DD4BF" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="560" height="256" fill="url(#background)" />
+  <circle cx="121" cy="128" r="150" fill="url(#glow)" />
+  <!-- The icon's mark, without its square: a circular arrow around a pushpin. -->
+  <g transform="translate(-1.46 10.12) scale(0.2396)">
+    <path d="M 764.8 299.9 A 330 330 0 1 1 454.7 187.0" fill="none" stroke="#2DD4BF" stroke-width="56" stroke-linecap="round" />
+    <path d="M 432.4 117.8 L 533.5 173.1 L 457.4 259.6 Z" fill="#2DD4BF" stroke="#2DD4BF" stroke-width="12" stroke-linejoin="round" />
+    <g transform="translate(478 540) rotate(35)">
+      <line x1="0" y1="-20" x2="0" y2="186" stroke="#F8FAFC" stroke-width="22" stroke-linecap="round" />
+      <path d="M -48 -166 H 48 L 58 -58 H -58 Z" fill="#F59E0B" />
+      <rect x="-118" y="-64" width="236" height="46" rx="20" fill="#FBBF24" />
+      <rect x="-82" y="-214" width="164" height="52" rx="22" fill="#FBBF24" />
+    </g>
+  </g>
+  <g font-family="'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif">
+    <text x="232" y="116" font-size="38" font-weight="700" fill="#F8FAFC">Sticky Manager</text>
+    <text x="233" y="152" font-size="18" fill="#B6C2D3">Scheduled megathreads,</text>
+    <text x="233" y="177" font-size="18" fill="#B6C2D3">pinned and rotated for you.</text>
+  </g>
+</svg>
