@@ -82,6 +82,15 @@ export function isDueWithinRetryDelay(runAt: Date, now: Date): boolean {
     return isOnTime(runAt, now) && runAt.getTime() <= runTime(addMinutes(now, RETRY_DELAY_MINUTES), now).getTime();
 }
 
+/**
+ * Whether a refresh due at `runAt` is a retry still to come as of `now`: due later than now, and within the retry
+ * delay. One whose time has come does not count: the scheduler lists a job until it has run, so after a failure it may
+ * be the failed refresh's own job.
+ */
+export function isRetryToCome(runAt: Date, now: Date): boolean {
+    return runAt.getTime() > now.getTime() && isDueWithinRetryDelay(runAt, now);
+}
+
 /** What the refresh check reads of a thread config in force. */
 export interface ThreadCheckState {
     readonly applied: boolean;

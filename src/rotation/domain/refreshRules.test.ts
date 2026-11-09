@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { findCheckFinding, findNextRefresh, isDueAtOnce, isDueWithinRetryDelay, isOnTime } from "./refreshRules.js";
+import {
+    findCheckFinding,
+    findNextRefresh,
+    isDueAtOnce,
+    isDueWithinRetryDelay,
+    isOnTime,
+    isRetryToCome,
+} from "./refreshRules.js";
 import type { ThreadCheckState, ThreadRefreshState } from "./refreshRules.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -115,6 +122,18 @@ describe("whether a pending refresh comes in time", (): void => {
         expect.assertions(1);
 
         expect(isDueWithinRetryDelay(new Date(runAt), NOW)).toBe(soon);
+    });
+
+    it.for<readonly [string, boolean]>([
+        ["2026-04-21T10:15:05Z", true],
+        ["2026-04-21T10:00:01Z", true],
+        ["2026-04-21T10:00:00Z", false],
+        ["2026-04-21T09:59:57Z", false],
+        ["2026-04-21T10:15:06Z", false],
+    ])("takes a refresh due %s as a retry still to come: %s", TEST_OPTIONS, ([runAt, toCome]): void => {
+        expect.assertions(1);
+
+        expect(isRetryToCome(new Date(runAt), NOW)).toBe(toCome);
     });
 });
 

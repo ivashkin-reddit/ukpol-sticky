@@ -197,8 +197,10 @@ describe(scheduleRetry, (): void => {
     it.for<readonly [string | undefined, string]>([
         ["weekly-thread", "2026-04-21T13:05:00Z"],
         ["daily-thread", "2026-04-21T12:40:00Z"],
+        // The failed refresh's own job: the scheduler lists a job until it has run, and this one is still running.
+        ["daily-thread", "2026-04-21T12:59:57Z"],
     ])(
-        "schedules the retry when the refresh due soon is another's or stuck (%s at %s)",
+        "schedules the retry when the refresh due soon is another's, stuck or the failed one's own (%s at %s)",
         TEST_OPTIONS,
         async ([configName, runAt]): Promise<void> => {
             expect.assertions(1);

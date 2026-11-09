@@ -1,7 +1,7 @@
 import { addSeconds } from "date-fns";
 import { getSchedule } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { findNextRefresh, isDueAtOnce, isDueWithinRetryDelay } from "./domain/refreshRules.js";
+import { findNextRefresh, isDueAtOnce, isRetryToCome } from "./domain/refreshRules.js";
 import type { NextRefresh, ThreadRefreshState } from "./domain/refreshRules.js";
 import { getRotationTime, refreshOrder } from "./domain/rotationRules.js";
 import { forgetRemovedThreadConfigs, forgetThreadConfigs } from "./forgetThreadConfigs.js";
@@ -90,16 +90,16 @@ export async function scheduleNextRefresh(configName: string, ports: SchedulePor
 }
 
 /**
- * After the thread config's refresh failed, makes sure a refresh retries it within the retry delay, unless an on-time
- * refresh of it already pending runs before then. While Reddit is down every comment on a full thread fails the same
- * way, and rescheduling for each would churn the scheduler into its limit of 60 new jobs a minute.
+ * After the thread config's refresh failed, makes sure a refresh retries it within the retry delay, unless a refresh of
+ * it still to come runs before then. While Reddit is down every comment on a full thread fails the same way, and
+ * rescheduling for each would churn the scheduler into its limit of 60 new jobs a minute. A refresh whose time has come
+ * does not count: the failed refresh's own job is still listed while it runs.
  */
 export async function scheduleRetry(configName: string, ports: SchedulePorts): Promise<void> {
     const now = new Date();
     const pending = await ports.refreshJobs.pending();
     const retryPending = pending.some(
-        (refresh: PendingRefresh): boolean =>
-            refresh.configName === configName && isDueWithinRetryDelay(refresh.runAt, now),
+        (refresh: PendingRefresh): boolean => refresh.configName === configName && isRetryToCome(refresh.runAt, now),
     );
     if (!retryPending) {
         await scheduleThread(configName, true, ports);
