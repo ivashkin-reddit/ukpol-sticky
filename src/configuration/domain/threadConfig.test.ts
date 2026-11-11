@@ -14,7 +14,7 @@ const MINIMAL_CONFIG: ThreadConfig = {
 };
 
 describe(checkThreadConfigSchema, (): void => {
-    it.for(["postTime", "sticky", "endNote", "lockOnRefresh"])(
+    it.for(["postTime", "sticky", "slot", "endNote", "lockOnRefresh"])(
         "accepts null for the optional key %s",
         TEST_OPTIONS,
         (key: string): void => {

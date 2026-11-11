@@ -1,7 +1,7 @@
 import json2md from "json2md";
 import type { ModeratorAlert } from "../notifications/index.js";
 import type { ConfigPageProblem } from "./configPageCheck.js";
-import { CONFIG_PAGE } from "./domain/threadConfig.js";
+import { CONFIG_PAGE, MAX_SLOT } from "./domain/threadConfig.js";
 
 // A config problem in the three places it is worded: the moderator alert to whoever saved the config page, the
 // developer log, and the status. Kept together, so the three cannot drift apart.
@@ -16,6 +16,27 @@ function alert(subject: string, body: readonly MarkdownBlock[]): ModeratorAlert 
 
 function trimmed(errors: readonly string[]): string[] {
     return errors.map((error: string): string => error.trim());
+}
+
+type PinProblem = Extract<ConfigPageProblem, Readonly<{ kind: "sharedSlot" | "tooManyPinned" }>>;
+
+/** The alert for a problem with the thread configs' pins. */
+function describePinProblem(problem: PinProblem, addressee: string): ModeratorAlert {
+    if (problem.kind === "sharedSlot") {
+        return alert(`Two configs share slot ${String(problem.slot)}`, [
+            {
+                p: `${addressee}, configs ${problem.configNames[0]} and ${problem.configNames[1]} both ask for slot ${String(problem.slot)} in wiki page ${CONFIG_PAGE}. Give each pinned config its own slot.`,
+            },
+            { p: KEEPING_EXISTING_CONFIG },
+        ]);
+    }
+
+    return alert(`Too many pinned configs in wiki page ${CONFIG_PAGE}`, [
+        {
+            p: `${addressee}, ${String(problem.count)} enabled configs in wiki page ${CONFIG_PAGE} are pinned (with slot or sticky: true), but Reddit holds at most ${String(MAX_SLOT)} highlights. Unpin some, then save the page again.`,
+        },
+        { p: KEEPING_EXISTING_CONFIG },
+    ]);
 }
 
 /** The alert for a config problem, addressed to the moderator who saved the config page. */
@@ -57,6 +78,9 @@ export function describeProblem(problem: ConfigPageProblem, addressee: string): 
                 { p: `${addressee}, config "${problem.configName}" is invalid: ${problem.reason}. Please fix it.` },
                 { p: KEEPING_EXISTING_CONFIG },
             ]);
+        case "sharedSlot":
+        case "tooManyPinned":
+            return describePinProblem(problem, addressee);
     }
 }
 
@@ -75,6 +99,10 @@ export function summarizeProblem(problem: ConfigPageProblem): string {
             return "two thread configs share a name";
         case "invalidValue":
             return `thread config "${problem.configName}" is invalid: ${problem.reason}`;
+        case "sharedSlot":
+            return `thread configs ${problem.configNames[0]} and ${problem.configNames[1]} share slot ${String(problem.slot)}`;
+        case "tooManyPinned":
+            return `${String(problem.count)} enabled thread configs are pinned; at most ${String(MAX_SLOT)} can be`;
     }
 }
 
@@ -93,5 +121,9 @@ export function describeProblemForStatus(problem: ConfigPageProblem): string {
             return "Two configs share a name; every config name must be unique.";
         case "invalidValue":
             return `Config "${problem.configName}" is invalid: ${problem.reason}.`;
+        case "sharedSlot":
+            return `Configs ${problem.configNames[0]} and ${problem.configNames[1]} both ask for slot ${String(problem.slot)}; each pinned config needs its own slot.`;
+        case "tooManyPinned":
+            return `${String(problem.count)} enabled configs are pinned, but Reddit holds at most ${String(MAX_SLOT)} highlights.`;
     }
 }

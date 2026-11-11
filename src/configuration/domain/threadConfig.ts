@@ -33,6 +33,9 @@ const MAX_TITLE_LENGTH = 300;
 const MAX_BODY_LENGTH = 40_000;
 const MAX_END_NOTE_LENGTH = 10_000;
 
+/** Reddit's community highlights hold six posts, so a thread config's slot is 1 to 6. */
+export const MAX_SLOT = 6;
+
 /**
  * One moderator-written definition of a managed thread: a YAML document on the config page.
  * A key left empty in YAML parses as null, and ajv's JSONSchemaType admits null for optional properties, so those
@@ -45,6 +48,7 @@ export interface ThreadConfig {
     readonly frequency?: ScheduleFrequency;
     readonly postTime?: string | null;
     readonly sticky?: boolean | null;
+    readonly slot?: number | null;
     readonly maxComments: number;
     readonly body: string;
     readonly endNote?: string | null;
@@ -62,6 +66,7 @@ const threadConfigsSchema: JSONSchemaType<ThreadConfig[]> = {
             frequency: { type: "string", enum: [...SCHEDULE_FREQUENCIES], nullable: true },
             postTime: { type: "string", pattern: POST_TIME.source, nullable: true },
             sticky: { type: "boolean", nullable: true },
+            slot: { type: "integer", minimum: 1, maximum: MAX_SLOT, nullable: true },
             maxComments: { type: "integer", minimum: 1 },
             body: { type: "string" },
             endNote: { type: "string", nullable: true },
@@ -87,13 +92,30 @@ export function checkThreadConfigSchema(values: unknown): SchemaCheck {
     return { kind: "valid", configs: values };
 }
 
+/**
+ * Where a thread config's live posts are pinned: in its slot; in the slot the previous live post held (`sticky: true`
+ * without a slot); or not at all.
+ */
+export type Pin =
+    Readonly<{ kind: "keepSlot" }> | Readonly<{ kind: "none" }> | Readonly<{ kind: "slot"; slot: number }>;
+
+export function getPin(config: ThreadConfig): Pin {
+    if (config.slot != null) {
+        return { kind: "slot", slot: config.slot };
+    }
+
+    return config.sticky === true ? { kind: "keepSlot" } : { kind: "none" };
+}
+
 /** A reason a config page cannot be accepted. */
 export type ConfigProblem =
     | Readonly<{ kind: "duplicateNames" }>
     | Readonly<{ kind: "incompleteSchedule"; configName: string }>
     | Readonly<{ kind: "invalidDateFormat"; configName: string; dateFormat: string; cause: Readonly<RangeError> }>
     | Readonly<{ kind: "invalidSchema"; errors: string }>
-    | Readonly<{ kind: "invalidValue"; configName: string; reason: string }>;
+    | Readonly<{ kind: "invalidValue"; configName: string; reason: string }>
+    | Readonly<{ kind: "sharedSlot"; slot: number; configNames: readonly [string, string] }>
+    | Readonly<{ kind: "tooManyPinned"; count: number }>;
 
 export type ThreadConfigsCheck =
     | Readonly<{ kind: "invalid"; problem: ConfigProblem }>
@@ -164,21 +186,55 @@ function checkDateToken(config: ThreadConfig): ConfigProblem | undefined {
     }
 }
 
+/** A slot asks for pinning, so it cannot stand beside sticky turned off. */
+function checkSlot(config: ThreadConfig): ConfigProblem | undefined {
+    return config.slot != null && config.sticky === false
+        ? { kind: "invalidValue", configName: config.name, reason: "it sets a slot but turns sticky off" }
+        : undefined;
+}
+
 /**
- * Checks values parsed from the config page: the schema, then each thread config's name, schedule, date token and
- * text in page order, then that names are unique. The first problem found is the one reported. These checks apply
- * only to a config page being saved; a stored copy is checked against the schema alone, so it stays readable.
+ * Each slot belongs to one enabled thread config, and Reddit holds six highlights, so at most six enabled thread
+ * configs are pinned: a seventh would unpin another at every rotation.
+ */
+function checkPins(configs: readonly ThreadConfig[]): ConfigProblem | undefined {
+    const pinned = configs.filter((config): boolean => config.enabled && getPin(config).kind !== "none");
+    const bySlot = new Map<number, string>();
+    for (const config of pinned) {
+        if (config.slot != null) {
+            const earlier = bySlot.get(config.slot);
+            if (earlier !== undefined) {
+                return { kind: "sharedSlot", slot: config.slot, configNames: [earlier, config.name] };
+            }
+
+            bySlot.set(config.slot, config.name);
+        }
+    }
+
+    return pinned.length > MAX_SLOT ? { kind: "tooManyPinned", count: pinned.length } : undefined;
+}
+
+/**
+ * Checks values parsed from the config page: the schema, then each thread config's name, schedule, date token, text
+ * and slot in page order, then that names are unique, then the pins. The first problem found is the one reported.
+ * These checks apply only to a config page being saved; a stored copy is checked against the schema alone, so it stays
+ * readable.
  */
 function firstConfigProblem(configs: readonly ThreadConfig[]): ConfigProblem | undefined {
     for (const config of configs) {
-        const problem = checkName(config) ?? checkSchedulePair(config) ?? checkDateToken(config) ?? checkText(config);
+        const problem =
+            checkName(config) ??
+            checkSchedulePair(config) ??
+            checkDateToken(config) ??
+            checkText(config) ??
+            checkSlot(config);
         if (problem !== undefined) {
             return problem;
         }
     }
 
     const namesAreUnique = uniq(configs.map((config): string => config.name)).length === configs.length;
-    return namesAreUnique ? undefined : { kind: "duplicateNames" };
+    return namesAreUnique ? checkPins(configs) : { kind: "duplicateNames" };
 }
 
 export function checkThreadConfigs(values: readonly unknown[]): ThreadConfigsCheck {

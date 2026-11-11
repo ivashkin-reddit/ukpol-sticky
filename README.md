@@ -48,6 +48,7 @@ The config page uses YAML. Each thread is a separate document, and documents are
 - `frequency` is one of `daily`, `mondays`, `tuesdays`, `wednesdays`, `thursdays`, `fridays`, `saturdays` or `sundays`.
 - `title` may contain one [date token](#date-tokens).
 - Reddit's limits apply: `title` must not be empty and must be at most 300 characters, `body` at most 40,000, and `endNote` at most 10,000.
+- `slot` is a whole number from 1 to 6. No two enabled threads can share a slot, and at most six enabled threads can be pinned (with `slot` or `sticky: true`), since Reddit holds six highlights. `slot` beside `sticky: false` is rejected.
 
 ### Reference
 
@@ -58,7 +59,8 @@ The config page uses YAML. Each thread is a separate document, and documents are
 | `title`         | Yes      | string  | Title for each new post. May contain one date token. A change takes effect at the next rotation.                                                                      |
 | `frequency`     | No       | string  | `daily`, or a weekday such as `wednesdays` for one post a week. Omit it together with `postTime` for a thread replaced only at its comment cap.                       |
 | `postTime`      | No       | string  | Scheduled rotation time, `HH:mm` in UTC. Only valid with `frequency`.                                                                                                 |
-| `sticky`        | No       | boolean | When `true`, each new post is stickied. Defaults to `false`.                                                                                                          |
+| `sticky`        | No       | boolean | When `true`, each new post is pinned in the highlight slot its predecessor held; the first goes last. Defaults to `false`.                                            |
+| `slot`          | No       | integer | 1 to 6: the highlight slot each new post is pinned in, which implies `sticky`. Slots 1 and 2 are old.reddit's two stickies. A change moves the live post at once.     |
 | `maxComments`   | Yes      | integer | The comment cap: when the live post reaches this many comments, it is replaced.                                                                                       |
 | `body`          | Yes      | string  | Text of each post. A change is applied to the live post in place.                                                                                                     |
 | `endNote`       | No       | string  | A distinguished comment, pinned to the outgoing post once its replacement is published. `{{new post}}` in it becomes a link to the new thread, titled with its title. |
@@ -87,6 +89,7 @@ title: Daily /r/ukpolitics megathread for {{date yyyy-MM-dd}}
 frequency: daily
 postTime: 02:00
 sticky: true
+slot: 1
 maxComments: 1000
 body: |
     This is the daily megathread for /r/ukpolitics.
