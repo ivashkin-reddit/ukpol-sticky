@@ -23,6 +23,10 @@ export interface FakeRedis {
     readonly hSet: Mock<RedisClient["hSet"]>;
     readonly set: Mock<RedisClient["set"]>;
     readonly watch: Mock<ThreadLocksRedis["watch"]>;
+    readonly zAdd: Mock<RedisClient["zAdd"]>;
+    readonly zRange: Mock<RedisClient["zRange"]>;
+    readonly zRemRangeByRank: Mock<RedisClient["zRemRangeByRank"]>;
+    readonly zRemRangeByScore: Mock<RedisClient["zRemRangeByScore"]>;
     /** The transaction every `watch` call returns. */
     readonly transaction: FakeTransaction;
 }
@@ -112,6 +116,10 @@ export function createFakeDevvitContext(subredditName = "testsub"): FakeDevvitCo
         hSet: vi.fn<RedisClient["hSet"]>().mockResolvedValue(0),
         set: vi.fn<RedisClient["set"]>().mockResolvedValue("OK"),
         watch: vi.fn<ThreadLocksRedis["watch"]>().mockResolvedValue(transaction.transaction),
+        zAdd: vi.fn<RedisClient["zAdd"]>().mockResolvedValue(1),
+        zRange: vi.fn<RedisClient["zRange"]>().mockResolvedValue([]),
+        zRemRangeByRank: vi.fn<RedisClient["zRemRangeByRank"]>().mockResolvedValue(0),
+        zRemRangeByScore: vi.fn<RedisClient["zRemRangeByScore"]>().mockResolvedValue(0),
         transaction,
     };
     const reddit = createFakeReddit();

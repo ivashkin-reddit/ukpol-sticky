@@ -7,7 +7,7 @@ import { createConfig } from "eslint-plugin-boundaries/config";
 
 // The capability modules under src, in dependency order: each may import only modules before it, through their
 // index.ts. A new module joins this list.
-const MODULE_ORDER = ["notifications", "configuration", "rotation"];
+const MODULE_ORDER = ["notifications", "changes", "highlights", "configuration", "rotation"];
 
 /** @type {import("eslint-plugin-boundaries").ElementDescriptors} */
 const ELEMENTS = [
