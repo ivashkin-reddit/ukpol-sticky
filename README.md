@@ -7,6 +7,7 @@ Sticky Manager publishes, stickies and rotates recurring discussion threads for 
 - **Clean handovers:** the outgoing post can get a pinned end note pointing readers on, and be locked.
 - **Live edits:** a change to a thread's body is applied to its current post in place.
 - **Moderator alerts:** configuration mistakes and failures are reported by modmail, once per problem.
+- **Status:** moderators can see every thread's state, and what needs attention, from the mod tools menu.
 
 ## Getting started
 
@@ -176,6 +177,33 @@ maxComments: 2500
 body: |
     Live event coverage.
 ```
+
+## Status
+
+To see whether Sticky Manager is working, open the subreddit's mod tools menu and choose **Sticky Manager status**. Only moderators see the item, and only moderators get an answer. The status changes nothing.
+
+It shows:
+
+- **Summary:** how many managed threads there are, and how many need attention.
+- **Config page:** whether the config page's latest revision is in force. If it was rejected, the status repeats the problem from the modmail; the thread configs from the last accepted revision stay in force until the page is fixed.
+- **Disabled:** the thread configs with `enabled: false`.
+- One section per thread, those needing attention first:
+    - **Live post:** its title and ID, whether it is stickied, and when it was posted.
+    - **Comments:** its comment count against its `maxComments`.
+    - **Next refresh:** when the app next looks at the thread, in UTC, and why.
+    - **Last refresh:** whether the app's last look at the thread succeeded, and the error if not. **Last success** follows a failure.
+    - **Handover:** a rotation that was interrupted part-way; the next refresh finishes it.
+    - **Needs attention:** what is wrong, and what the app does next.
+
+To open a thread's live post, choose it under **Open a live post** and press **Open**. Leave it empty and press **Open** to reload the status.
+
+| Needs attention                                                                    | What to do                                                                                                                 |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Its last refresh failed                                                            | Nothing, usually: the app retries within 15 minutes. If it keeps failing, check the thread on Reddit.                      |
+| Its refresh has not run, no refresh is pending, or its saved config is not applied | Nothing: the hourly refresh check repairs it within the hour. If it is still there after an hour, ask the app's developer. |
+| It has no live post, or its handover is unfinished                                 | Nothing: the hourly refresh check requests a refresh within the hour.                                                      |
+| Its live post could not be read from Reddit                                        | Check the post on Reddit. If it was removed, the app publishes a new one within the hour.                                  |
+| Could not read its status                                                          | Try again shortly. If it persists, ask the app's developer.                                                                |
 
 ## Moderator alerts
 

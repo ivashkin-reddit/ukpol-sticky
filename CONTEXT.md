@@ -69,8 +69,16 @@ The hourly check that each thread config in force has the refresh it needs pendi
 _Avoid_: safety net, heartbeat, cron job
 
 **Refresh status**:
-Whether a thread config's refreshes are running: how its last refresh ended, when one last succeeded, and when its next is due.
+Whether a thread config's refreshes are running: how its last refresh ended, when one last succeeded, and when and why its next is due.
 _Avoid_: health, heartbeat
+
+**Status**:
+The moderators' read-only view of Sticky Manager: each thread config's live post and comments against its comment cap, when and why its next refresh runs, how its last refresh ended, any unfinished handover, and the config page's state.
+_Avoid_: dashboard, health
+
+**Needs attention**:
+A thread config whose last refresh failed, whose live post or status cannot be read, or for which the refresh check would request a refresh. The status lists these first.
+_Avoid_: unhealthy, broken
 
 ### Alerting moderators
 

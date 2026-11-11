@@ -26,12 +26,16 @@ A modular monolith with one bounded context, managed threads, built as ports and
     - `domain/` holds pure rules that take what they need as arguments.
     - The module root holds the use cases, and `ports.ts` holds the interfaces they need from outside.
     - `adapters/` implement those ports over Devvit, typed by the narrow context types in [src/platform/index.ts](src/platform/index.ts).
-- The edge is the files directly under `src/` and the server in `src/server/`. [app.ts](src/server/app.ts) routes each request to a handler in [triggers.ts](src/triggers.ts), with a context [requestContext.ts](src/server/requestContext.ts) builds for that request. Each handler gets ports from [composition.ts](src/composition.ts), the only code that builds adapters, and calls one use case.
+- The edge is the files directly under `src/` and the server in `src/server/`. [app.ts](src/server/app.ts) routes each request to a handler in [triggers.ts](src/triggers.ts), or in [status.ts](src/status.ts) for the mod UI, with a context [requestContext.ts](src/server/requestContext.ts) builds for that request. Each handler gets ports from [composition.ts](src/composition.ts), the only code that builds adapters, and calls one use case.
 - A new Devvit capability takes three steps: a port in the module's `ports.ts`, an adapter in its `adapters/`, and wiring in `composition.ts`.
 - [eslint/architecture.mjs](eslint/architecture.mjs) enforces all of this with eslint-plugin-boundaries, and [tests/architecture.test.ts](tests/architecture.test.ts) checks that each rule still fires. A new module joins `MODULE_ORDER` there. A new rule gets a case in the test.
+- **The mod UI** is mod-only menu items and forms, served as UI routes in [app.ts](src/server/app.ts) that answer with what Reddit's UI shows next.
+    - The status ([status.ts](src/status.ts)) first identifies the caller through the moderator listing ([moderators.ts](src/moderators.ts)), before it reads anything else. Any moderator counts, one with no permissions included; `getModPermissionsForSubreddit` cannot tell such a moderator from a user who is not one.
+    - The check reads the request's context directly, as `triggers.ts` reads `appSlug`: who is asking is the edge's question, not a module's port.
+    - It then calls `configuration`'s `getConfigPageStatus` and, with the thread configs that read, `rotation`'s `getThreadStatuses`; [statusForm.ts](src/statusForm.ts) lays out the form. The status only reads: it writes, schedules and alerts nothing.
 - Planned features already have places:
     - Slack is a second adapter for `NotifyModerators`, chosen in `composition.ts`.
-    - The mod UI is mod-only menu items and forms: routes at the edge that check the caller's moderator permissions first, then call the `configuration` and `rotation` use cases. It shows config problems from their typed `ConfigProblem` values, as `configPageRevision.ts` does for modmail, and whether refreshes are running from `getRefreshStatus`.
+    - Management forms join the mod UI the same way, and check the caller's permissions (`all` or `posts`) from the same listing entry.
 
 These choices are deliberate. Revisit one only when the user asks:
 
@@ -59,9 +63,9 @@ Redis key strings (in [redisConfigStore.ts](src/configuration/adapters/redisConf
 ## Security
 
 - **Least privilege.** `devvit.json` grants Redis and the Reddit API as the app account (`scope: "user"`, no `asUser`), and turns outbound HTTP off. A permission is added only with a feature that uses it; [tests/devvitConfig.test.ts](tests/devvitConfig.test.ts) fails on any change to `devvit.json`, so each one is deliberate.
-- **One surface.** The routes `devvit.json` declares are the only ones the server answers: no web view (`post`), no `externalEndpoints`, and every other path or method gets 404. A mod UI route checks the caller's moderator permissions before anything else.
+- **One surface.** The routes `devvit.json` declares are the only ones the server answers: no web view (`post`), no `externalEndpoints`, and every other path or method gets 404. A mod UI route (the status's menu item and form) checks that the caller moderates the subreddit before anything else, and takes nothing from a request but the field it reads.
 - **Untrusted input.** Request bodies are narrowed from `unknown` in [src/server/requestBodies.ts](src/server/requestBodies.ts), never cast.
-- **No detail in responses.** Errors go to the developer log through `observed`; a response says only `ok` or `error`.
+- **No detail in responses.** Errors go to the developer log through `observed`; a trigger or task's response says only `ok` or `error`, and a mod UI route's failure a fixed message.
 - **Repeated delivery.** Devvit may deliver an event or task more than once, so every handler is safe to repeat; [tests/routes.integration.test.ts](tests/routes.integration.test.ts) delivers each twice.
 - **Supply chain.** Dependencies install from the lockfile with install scripts blocked; CI fails on any `high` or `critical` audit finding, pins GitHub Actions to commit SHAs (kept current by Dependabot), and checks the server bundle holds no Blocks code.
 - **No secrets.** The app uses no settings, tokens or keys.
