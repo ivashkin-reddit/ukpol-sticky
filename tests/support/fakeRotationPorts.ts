@@ -16,6 +16,7 @@ import type {
 } from "../../src/rotation/index.js";
 import { createFakeAlertLatch } from "./fakeAlertLatch.js";
 import type { FakeAlertLatch } from "./fakeAlertLatch.js";
+import type { CalledMock, Writes } from "./writes.js";
 
 export interface FakeLivePosts {
     readonly all: Mock<LivePosts["all"]>;
@@ -70,6 +71,53 @@ export interface FakeRotationPorts {
     /** The latch of the alert about the named thread config's failed refreshes, the same one each time. */
     readonly threadFailureAlert: (configName: string) => FakeAlertLatch;
     readonly threadLocks: Readonly<{ tryLock: Mock<ThreadLocks["tryLock"]>; unlock: Mock<ThreadLocks["unlock"]> }>;
+    /** Every method that writes, schedules, posts, sends or locks, for checking that a use case only reads. */
+    readonly writes: Writes;
+}
+
+/** The writing methods of a set of rotation fakes, as far as their calls go. */
+type RotationWriteMethods = Readonly<{
+    appliedThreadConfigs: Readonly<Record<"forget" | "record", CalledMock>>;
+    livePosts: Readonly<
+        Record<
+            "forget" | "forgetCommentCap" | "forgetHandover" | "saveHandover" | "set" | "storeCommentCap",
+            CalledMock
+        >
+    >;
+    notifyModerators: CalledMock;
+    posts: Readonly<Record<"publish", CalledMock>>;
+    refreshFailureAlert: Readonly<Record<"claim", CalledMock>>;
+    refreshJobs: Readonly<Record<"cancelFor" | "cancelUnassigned" | "replaceFor" | "startHourlyCheck", CalledMock>>;
+    refreshStatus: Readonly<Record<"forget" | "recordFailure" | "recordNextRefresh" | "recordSuccess", CalledMock>>;
+    retiredRefreshRecords: Readonly<Record<"delete", CalledMock>>;
+    threadLocks: Readonly<Record<"tryLock", CalledMock>>;
+}>;
+
+/** The writing methods of `fakes`, by name. */
+function listWrites(fakes: RotationWriteMethods): Writes {
+    return {
+        "appliedThreadConfigs.record": fakes.appliedThreadConfigs.record,
+        "appliedThreadConfigs.forget": fakes.appliedThreadConfigs.forget,
+        "livePosts.set": fakes.livePosts.set,
+        "livePosts.forget": fakes.livePosts.forget,
+        "livePosts.saveHandover": fakes.livePosts.saveHandover,
+        "livePosts.forgetHandover": fakes.livePosts.forgetHandover,
+        "livePosts.storeCommentCap": fakes.livePosts.storeCommentCap,
+        "livePosts.forgetCommentCap": fakes.livePosts.forgetCommentCap,
+        "notifyModerators": fakes.notifyModerators,
+        "posts.publish": fakes.posts.publish,
+        "refreshFailureAlert.claim": fakes.refreshFailureAlert.claim,
+        "refreshJobs.replaceFor": fakes.refreshJobs.replaceFor,
+        "refreshJobs.cancelFor": fakes.refreshJobs.cancelFor,
+        "refreshJobs.cancelUnassigned": fakes.refreshJobs.cancelUnassigned,
+        "refreshJobs.startHourlyCheck": fakes.refreshJobs.startHourlyCheck,
+        "refreshStatus.recordSuccess": fakes.refreshStatus.recordSuccess,
+        "refreshStatus.recordFailure": fakes.refreshStatus.recordFailure,
+        "refreshStatus.recordNextRefresh": fakes.refreshStatus.recordNextRefresh,
+        "refreshStatus.forget": fakes.refreshStatus.forget,
+        "retiredRefreshRecords.delete": fakes.retiredRefreshRecords.delete,
+        "threadLocks.tryLock": fakes.threadLocks.tryLock,
+    };
 }
 
 /** Resolves to `value`: a fake live posts method's default, an empty store's answer. */
@@ -208,7 +256,7 @@ export function createFakeRotationPorts(
     configs: readonly ThreadConfig[] = [],
     livePosts: Partial<LivePosts> = {},
 ): FakeRotationPorts {
-    const fakes: Omit<FakeRotationPorts, "ports"> = {
+    const fakes: Omit<FakeRotationPorts, "ports" | "writes"> = {
         appliedThreadConfigs: createFakeAppliedThreadConfigs(configs),
         livePosts: createFakeLivePosts(livePosts),
         notifyModerators: vi.fn<NotifyModerators>().mockResolvedValue(undefined),
@@ -242,5 +290,6 @@ export function createFakeRotationPorts(
             threadLocks: fakes.threadLocks,
         },
         ...fakes,
+        writes: listWrites(fakes),
     };
 }
