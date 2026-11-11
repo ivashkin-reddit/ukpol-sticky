@@ -61,7 +61,7 @@ async function applyNextRefresh(
     }
 
     await ports.refreshJobs.replaceFor(configName, next.at);
-    await ports.refreshStatus.recordNextRefresh(configName, next.at);
+    await ports.refreshStatus.recordNextRefresh(configName, next);
     console.log(`Next refresh of thread config ${configName} scheduled for ${next.at.toISOString()}, ${next.reason}.`);
 }
 
@@ -110,7 +110,7 @@ export async function scheduleRetry(configName: string, ports: SchedulePorts): P
 export async function requestThreadRefresh(configName: string, ports: SchedulePorts): Promise<void> {
     const refreshAt = addSeconds(new Date(), REQUESTED_REFRESH_DELAY_SECONDS);
     await ports.refreshJobs.replaceFor(configName, refreshAt);
-    await ports.refreshStatus.recordNextRefresh(configName, refreshAt);
+    await ports.refreshStatus.recordNextRefresh(configName, { at: refreshAt, reason: "requested" });
 }
 
 /** Requests a refresh of the thread config soon, unless one of it already pending is due at once. */

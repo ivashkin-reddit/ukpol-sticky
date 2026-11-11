@@ -15,6 +15,9 @@ export type RefreshReason =
     | "to retry it after a failure"
     | "to rotate it";
 
+/** Why a thread config's next refresh is due: a reason the rules gave, or a request for one now. */
+export type NextRefreshReason = RefreshReason | "requested";
+
 /** What the next-refresh rule reads of a thread config. */
 export interface ThreadRefreshState {
     /** Whether its stored version is the one its last refresh applied. */

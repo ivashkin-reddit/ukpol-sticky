@@ -1,5 +1,6 @@
 import type { RedisPort } from "../../platform/index.js";
-import type { LastRefresh, RefreshStatus, RefreshStatusStore } from "../ports.js";
+import type { NextRefreshReason } from "../domain/refreshRules.js";
+import type { LastRefresh, RefreshStatus, RefreshStatusStore, ScheduledRefresh } from "../ports.js";
 
 // Live state in every installed subreddit, so the key prefix and field names stay stable: one hash per thread config.
 // A hash, so each write sets only its own fields and concurrent writers never overwrite each other's.
@@ -9,6 +10,45 @@ export type RefreshStatusRedis = RedisPort<"del" | "hDel" | "hGetAll" | "hSet">;
 
 function getStatusKey(configName: string): string {
     return `${REFRESH_STATUS_PREFIX}${configName}`;
+}
+
+/** A next refresh's reason as stored: a short code that stays stable whatever the reason's wording. */
+function encodeReason(reason: NextRefreshReason): string {
+    switch (reason) {
+        case "to apply its stored thread config":
+            return "apply";
+        case "to retry it after a failure":
+            return "retry";
+        case "to publish its live post":
+            return "publish";
+        case "to finish its handover":
+            return "handover";
+        case "to rotate it":
+            return "rotate";
+        case "requested":
+            return "requested";
+    }
+}
+
+/** The reason a stored code names; undefined for none, or for a code this version does not know. */
+function decodeReason(code: string | undefined): NextRefreshReason | undefined {
+    switch (code) {
+        case "apply":
+            return "to apply its stored thread config";
+        case "retry":
+            return "to retry it after a failure";
+        case "publish":
+            return "to publish its live post";
+        case "handover":
+            return "to finish its handover";
+        case "rotate":
+            return "to rotate it";
+        case "requested":
+            return "requested";
+        case undefined:
+        default:
+            return undefined;
+    }
 }
 
 function parseDate(value: string | undefined): Date | undefined {
@@ -40,6 +80,7 @@ async function readStatus(redis: RefreshStatusRedis, configName: string): Promis
         lastRefresh: parseLastRefresh(fields),
         lastSuccessAt: parseDate(fields["lastSuccessAt"]),
         nextRefreshAt: parseDate(fields["nextRefreshAt"]),
+        nextRefreshReason: decodeReason(fields["nextRefreshReason"]),
     };
 }
 
@@ -66,14 +107,18 @@ async function recordSuccess(redis: RefreshStatusRedis, configName: string, at: 
     await redis.hDel(key, ["lastRefreshFailure"]);
 }
 
-async function recordNextRefresh(redis: RefreshStatusRedis, configName: string, at: Date | undefined): Promise<void> {
+async function recordNextRefresh(
+    redis: RefreshStatusRedis,
+    configName: string,
+    next: ScheduledRefresh | undefined,
+): Promise<void> {
     const key = getStatusKey(configName);
-    if (at === undefined) {
-        await redis.hDel(key, ["nextRefreshAt"]);
+    if (next === undefined) {
+        await redis.hDel(key, ["nextRefreshAt", "nextRefreshReason"]);
         return;
     }
 
-    await redis.hSet(key, { nextRefreshAt: at.toISOString() });
+    await redis.hSet(key, { nextRefreshAt: next.at.toISOString(), nextRefreshReason: encodeReason(next.reason) });
 }
 
 /** Each thread config's refresh status, as one Redis hash per thread config. */
@@ -91,8 +136,8 @@ export function redisRefreshStatus(redis: RefreshStatusRedis): RefreshStatusStor
                 lastRefreshFailure: failure,
             });
         },
-        recordNextRefresh: async (configName: string, at: Date | undefined): Promise<void> => {
-            await recordNextRefresh(redis, configName, at);
+        recordNextRefresh: async (configName: string, next: ScheduledRefresh | undefined): Promise<void> => {
+            await recordNextRefresh(redis, configName, next);
         },
         forget: async (configNames: readonly string[]): Promise<void> => {
             if (configNames.length > 0) {

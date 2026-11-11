@@ -43,10 +43,10 @@ describe(scheduleNextRefresh, (): void => {
                 "daily-thread",
                 new Date("2026-04-21T12:30:05.000Z"),
             );
-            expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith(
-                "daily-thread",
-                new Date("2026-04-21T12:30:05.000Z"),
-            );
+            expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith("daily-thread", {
+                at: new Date("2026-04-21T12:30:05.000Z"),
+                reason: "to rotate it",
+            });
             expect(logSpy).toHaveBeenCalledExactlyOnceWith(
                 "Next refresh of thread config daily-thread scheduled for 2026-04-21T12:30:05.000Z, to rotate it.",
             );
@@ -154,6 +154,22 @@ describe(scheduleNextRefresh, (): void => {
 });
 
 describe(scheduleRetry, (): void => {
+    it("records a retry's time and reason", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeTime("2026-04-21T10:00:00Z");
+        silenceConsole("log");
+        const fakes = dailyThread();
+        fakes.refreshJobs.pending.mockResolvedValue([]);
+
+        await scheduleRetry("daily-thread", fakes.ports);
+
+        expect(fakes.refreshStatus.recordNextRefresh).toHaveBeenCalledExactlyOnceWith("daily-thread", {
+            at: new Date("2026-04-21T10:15:05.000Z"),
+            reason: "to retry it after a failure",
+        });
+    });
+
     it(
         "retries the thread config fifteen minutes on, leaving its overdue rotation time out",
         TEST_OPTIONS,
@@ -264,6 +280,7 @@ describe(getRefreshStatus, (): void => {
             lastRefresh: { at: new Date("2026-04-21T12:30:05Z"), outcome: "failed", failure: "Reddit is down" },
             lastSuccessAt: new Date("2026-04-20T12:30:05Z"),
             nextRefreshAt: new Date("2026-04-21T12:45:05Z"),
+            nextRefreshReason: "to retry it after a failure",
         };
         const statuses = { "daily-thread": status };
         fakes.refreshStatus.read.mockResolvedValue(statuses);

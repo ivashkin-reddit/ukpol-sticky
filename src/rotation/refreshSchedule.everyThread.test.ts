@@ -39,8 +39,8 @@ describe(requestEveryThreadRefresh, (): void => {
                 ["loose-thread", refreshAt],
             ]);
             expect(fakes.refreshStatus.recordNextRefresh.mock.calls).toStrictEqual([
-                ["sticky-thread", refreshAt],
-                ["loose-thread", refreshAt],
+                ["sticky-thread", { at: refreshAt, reason: "requested" }],
+                ["loose-thread", { at: refreshAt, reason: "requested" }],
             ]);
             expect(logSpy).toHaveBeenCalledExactlyOnceWith(
                 "Requested a refresh of thread configs sticky-thread, loose-thread: thread configs stored since the last refresh.",

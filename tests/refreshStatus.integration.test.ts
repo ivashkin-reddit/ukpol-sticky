@@ -44,6 +44,7 @@ describe("the refresh status", (): void => {
                 lastRefresh: { at: new Date("2026-04-21T10:00:00Z"), outcome: "succeeded" },
                 lastSuccessAt: new Date("2026-04-21T10:00:00Z"),
                 nextRefreshAt: new Date("2026-04-21T12:30:05Z"),
+                nextRefreshReason: "to rotate it",
             },
         });
     });

@@ -1,5 +1,6 @@
 import type { ThreadConfig } from "../configuration/index.js";
 import type { AlertLatch, NotifyModerators } from "../notifications/index.js";
+import type { NextRefreshReason } from "./domain/refreshRules.js";
 
 // What the rotation use cases need from outside the module. Adapters (adapters/) implement these, and the
 // composition root (src/composition.ts) wires them.
@@ -114,13 +115,24 @@ export interface RefreshJobs {
 export type LastRefresh =
     Readonly<{ at: Date; outcome: "failed"; failure: string }> | Readonly<{ at: Date; outcome: "succeeded" }>;
 
-/** Whether a thread config's refreshes are running: how its last ended, when one last succeeded, when its next is due. */
+/** A thread config's next refresh as recorded: when it is due, and why. */
+export interface ScheduledRefresh {
+    readonly at: Date;
+    readonly reason: NextRefreshReason;
+}
+
+/**
+ * Whether a thread config's refreshes are running: how its last ended, when one last succeeded, and when and why its
+ * next is due.
+ */
 export interface RefreshStatus {
     /** Undefined until its first refresh. */
     readonly lastRefresh: LastRefresh | undefined;
     readonly lastSuccessAt: Date | undefined;
     /** Undefined when no refresh of it is scheduled; in the past when one did not run or did not finish. */
     readonly nextRefreshAt: Date | undefined;
+    /** Why its next refresh is due; undefined when none is scheduled, or for a record from before reasons were kept. */
+    readonly nextRefreshReason: NextRefreshReason | undefined;
 }
 
 /** Each thread config's refresh status, recorded as its refreshes run and are scheduled. */
@@ -129,8 +141,8 @@ export interface RefreshStatusStore {
     readonly read: (configNames: readonly string[]) => Promise<Readonly<Record<string, RefreshStatus>>>;
     readonly recordSuccess: (configName: string, at: Date) => Promise<void>;
     readonly recordFailure: (configName: string, at: Date, failure: string) => Promise<void>;
-    /** Records when the thread config's next refresh is due, or that none is scheduled. */
-    readonly recordNextRefresh: (configName: string, at: Date | undefined) => Promise<void>;
+    /** Records when the thread config's next refresh is due and why, or that none is scheduled. */
+    readonly recordNextRefresh: (configName: string, next: ScheduledRefresh | undefined) => Promise<void>;
     readonly forget: (configNames: readonly string[]) => Promise<void>;
 }
 
