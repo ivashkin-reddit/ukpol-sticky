@@ -79,6 +79,11 @@ const FORBIDDEN_IMPORTS: readonly ImportCase[] = [
         source: 'export { requestEveryThreadRefresh } from "../rotation/index.js";',
     },
     {
+        rule: "changes does not import a module after it",
+        file: "src/changes/changeHistory.ts",
+        source: 'export type { Highlights } from "../highlights/index.js";',
+    },
+    {
         rule: "highlights does not import rotation, which supplies its lock through a port",
         file: "src/highlights/pinToSlot.ts",
         source: 'export { holdLivePostLock } from "../rotation/index.js";',
@@ -160,6 +165,11 @@ const ALLOWED_IMPORTS: readonly ImportCase[] = [
         rule: "highlights imports the changes module's interface",
         file: "src/highlights/pinToSlot.ts",
         source: 'export type { ChangeHistoryStore } from "../changes/index.js";',
+    },
+    {
+        rule: "rotation imports the highlights module's interface",
+        file: "src/rotation/threadRefresh.ts",
+        source: 'export { placePost } from "../highlights/index.js";',
     },
     {
         rule: "application code imports its module's ports",
