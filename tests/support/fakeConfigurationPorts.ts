@@ -4,6 +4,7 @@ import type { ConfigPage, ConfigStore, ConfigurationPorts, ThreadConfig } from "
 import type { NotifyModerators } from "../../src/notifications/index.js";
 import { createFakeAlertLatch } from "./fakeAlertLatch.js";
 import type { FakeAlertLatch } from "./fakeAlertLatch.js";
+import type { Writes } from "./writes.js";
 
 export const VALID_CONFIG_PAGE = [
     "name: daily-thread",
@@ -32,6 +33,8 @@ export interface FakeConfigurationPorts {
     readonly page: Readonly<{ read: Mock<ConfigPage["read"]>; install: Mock<ConfigPage["install"]> }>;
     readonly store: FakeConfigStore;
     readonly unreadableAlert: FakeAlertLatch;
+    /** Every method that writes, sends or claims, for checking that a use case only reads. */
+    readonly writes: Writes;
 }
 
 export type FakeConfigurationOptions = Readonly<{
@@ -92,5 +95,15 @@ export function createFakeConfigurationPorts(options: FakeConfigurationOptions =
         page,
         store,
         unreadableAlert,
+        writes: {
+            "store.writeConfigs": store.writeConfigs,
+            "store.writeAcceptedRevision": store.writeAcceptedRevision,
+            "store.writeRejectedRevision": store.writeRejectedRevision,
+            "page.install": page.install,
+            notifyModerators,
+            "unreadableAlert.claim": unreadableAlert.claim,
+            "unreadableAlert.confirm": unreadableAlert.confirm,
+            "unreadableAlert.release": unreadableAlert.release,
+        },
     };
 }
