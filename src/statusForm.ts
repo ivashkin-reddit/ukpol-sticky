@@ -93,15 +93,19 @@ function livePostChoice(threads: readonly ThreadStatus[]): FormField[] {
           ];
 }
 
+/** The disabled thread configs, each thread config in force, then the choice: last, so it sits above the form's buttons. */
 function threadFields(threads: ThreadStatuses, now: Date): FormField[] {
     return [
         ...(threads.disabled.length === 0 ? [] : [shown("disabled", "Disabled", threads.disabled.join(", "))]),
-        ...livePostChoice(threads.threads),
         ...threads.threads.map((status: ThreadStatus, index: number): FormField => threadGroup(status, index, now)),
+        ...livePostChoice(threads.threads),
     ];
 }
 
-/** The status form: the summary and the config page, then each thread config in force, those needing attention first. */
+/**
+ * The status form: the summary and the config page, then each thread config in force, those needing attention first,
+ * then the choice of a live post to open, directly above the Open button.
+ */
 export function layOutStatus(view: StatusView): Form {
     const { config, threads, now, notice } = view;
     const asOf = `As of ${formatUtc(now)}.`;

@@ -83,7 +83,7 @@ function textOf(fields: readonly FieldView[], name: string): unknown {
 
 describe(layOutStatus, (): void => {
     it(
-        "lays out the summary, the config page, the disabled thread configs, the choice and each thread config",
+        "lays out the summary, the config page, the disabled thread configs, each thread config, then the choice",
         TEST_OPTIONS,
         (): void => {
             expect.assertions(1);
@@ -101,14 +101,6 @@ describe(layOutStatus, (): void => {
                         "Its latest revision is in force, saved by /u/mod_user.",
                     ),
                     shown("disabled", "Disabled", "weekly-thread, ama-thread"),
-                    {
-                        type: "select",
-                        name: "threadConfig",
-                        label: "Open a live post",
-                        helpText: "Leave this empty to reload the status.",
-                        options: [{ label: "daily-thread: Daily thread", value: "daily-thread" }],
-                        required: false,
-                    },
                     {
                         type: "group",
                         label: "loose-thread: needs attention",
@@ -159,6 +151,15 @@ describe(layOutStatus, (): void => {
                                 "Succeeded 2026-04-21 05:00 UTC (5 hours ago)",
                             ),
                         ],
+                    },
+                    // Last, so the choice sits directly above the form's Open button.
+                    {
+                        type: "select",
+                        name: "threadConfig",
+                        label: "Open a live post",
+                        helpText: "Leave this empty to reload the status.",
+                        options: [{ label: "daily-thread: Daily thread", value: "daily-thread" }],
+                        required: false,
                     },
                 ],
             };
