@@ -2,6 +2,7 @@ import type { RedditClient, RedisClient, SchedulerClient } from "@devvit/web/ser
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ConfigurationContext, DevvitContext, RotationContext } from "../../src/composition.js";
+import type { ModeratorEntry, ModeratorsContext } from "../../src/moderators.js";
 import type { LockReleaseTransaction, ThreadLocksRedis } from "../../src/rotation/adapters/redisThreadLocks.js";
 
 export interface FakeTransaction {
@@ -28,10 +29,12 @@ export interface FakeRedis {
 
 export type CreateModInboxConversation = RedditClient["modMail"]["createModInboxConversation"];
 
-type DevvitReddit = ConfigurationContext["reddit"] & RotationContext["reddit"];
+type DevvitReddit = ConfigurationContext["reddit"] & ModeratorsContext["reddit"] & RotationContext["reddit"];
 
 export interface FakeReddit {
     readonly modMail: Readonly<{ createModInboxConversation: Mock<CreateModInboxConversation> }>;
+    readonly getCurrentUsername: Mock<DevvitReddit["getCurrentUsername"]>;
+    readonly getModerators: Mock<DevvitReddit["getModerators"]>;
     readonly getCommentById: Mock<DevvitReddit["getCommentById"]>;
     readonly getPostById: Mock<DevvitReddit["getPostById"]>;
     readonly getWikiPage: Mock<DevvitReddit["getWikiPage"]>;
@@ -54,11 +57,30 @@ export interface FakeDevvitContext {
     readonly scheduler: FakeScheduler;
 }
 
+/** A moderator listing of `entries`, as getModerators returns one. */
+export function listingOf(
+    entries: readonly Readonly<{ username: string; permissions: readonly string[] }>[],
+): ReturnType<DevvitReddit["getModerators"]> {
+    return {
+        all: async (): Promise<readonly ModeratorEntry[]> =>
+            await Promise.resolve(
+                entries.map(
+                    (entry: Readonly<{ username: string; permissions: readonly string[] }>): ModeratorEntry => ({
+                        username: entry.username,
+                        moderatorInfo: { modPermissions: entry.permissions },
+                    }),
+                ),
+            ),
+    };
+}
+
 function createFakeReddit(): FakeReddit {
     return {
         modMail: {
             createModInboxConversation: vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id"),
         },
+        getCurrentUsername: vi.fn<DevvitReddit["getCurrentUsername"]>().mockResolvedValue(undefined),
+        getModerators: vi.fn<DevvitReddit["getModerators"]>().mockReturnValue(listingOf([])),
         getCommentById: vi.fn<DevvitReddit["getCommentById"]>(),
         getPostById: vi.fn<DevvitReddit["getPostById"]>(),
         getWikiPage: vi.fn<DevvitReddit["getWikiPage"]>(),

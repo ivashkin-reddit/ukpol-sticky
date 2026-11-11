@@ -4,6 +4,7 @@ import { wikiConfigPage } from "./configuration/adapters/wikiConfigPage.js";
 import type { WikiConfigPageContext } from "./configuration/adapters/wikiConfigPage.js";
 import { getThreadConfigs } from "./configuration/index.js";
 import type { ConfigReadPorts, ConfigurationPorts, ThreadConfig } from "./configuration/index.js";
+import type { ModeratorsContext } from "./moderators.js";
 import { modmailNotifier } from "./notifications/adapters/modmail.js";
 import type { ModmailContext } from "./notifications/adapters/modmail.js";
 import { redisAlertLatch } from "./notifications/adapters/redisAlertLatch.js";
@@ -49,8 +50,11 @@ export type RotationContext = ConfigReadContext &
         scheduler: RefreshScheduler;
     }>;
 
-/** Everything a handler receives: Devvit's clients for the request's installation, its subreddit, and the app's slug. */
-export type DevvitContext = ConfigurationContext & RotationContext & Readonly<{ appSlug: string }>;
+/**
+ * Everything a handler receives: Devvit's clients for the request's installation, its subreddit, the app's slug, and,
+ * for a request from Reddit's UI, who made it.
+ */
+export type DevvitContext = ConfigurationContext & ModeratorsContext & RotationContext & Readonly<{ appSlug: string }>;
 
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {

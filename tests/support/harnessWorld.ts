@@ -3,6 +3,7 @@ import type { T1, T3 } from "@devvit/web/shared";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { DevvitContext } from "../../src/composition.js";
+import type { ModeratorEntry } from "../../src/moderators.js";
 import type { ManagedComment, ManagedPost } from "../../src/rotation/index.js";
 import { createApp } from "../../src/server/app.js";
 import { TEST_APP_SLUG, TEST_SUBREDDIT_ID, TEST_SUBREDDIT_NAME } from "./devvitHarness.js";
@@ -56,11 +57,40 @@ function createWiki(wikiContent: string | undefined): Wiki {
     };
 }
 
+/** Who makes the requests a harness world serves, and whether they moderate its subreddit. */
+export type HarnessCaller = Readonly<{ username: string | undefined; moderator: boolean }>;
+
+const HARNESS_MODERATOR: HarnessCaller = { username: "mod_user", moderator: true };
+
 /**
- * The harness's Reddit, Redis and scheduler as a request receives them, with stand-ins for the two Reddit APIs the
- * harness does not implement: the wiki (see createWiki) and modmail, a mock.
+ * Stand-ins for the caller and the moderator listing, which the harness does not implement: the listing holds the
+ * caller's own entry, with every permission, when they moderate the subreddit.
  */
-export function createHarnessWorld(wikiContent: string | undefined): HarnessWorld {
+function createModerators(caller: HarnessCaller): Pick<DevvitReddit, "getCurrentUsername" | "getModerators"> {
+    return {
+        getCurrentUsername: async (): Promise<string | undefined> => await Promise.resolve(caller.username),
+        getModerators: (
+            options: Readonly<{ subredditName: string; username: string }>,
+        ): ReturnType<DevvitReddit["getModerators"]> => ({
+            all: async (): Promise<readonly ModeratorEntry[]> =>
+                await Promise.resolve(
+                    caller.moderator && options.username === caller.username
+                        ? [{ username: options.username, moderatorInfo: { modPermissions: ["all"] } }]
+                        : [],
+                ),
+        }),
+    };
+}
+
+/**
+ * The harness's Reddit, Redis and scheduler as a request receives them, with stand-ins for the Reddit APIs the harness
+ * does not implement: the wiki (see createWiki), modmail (a mock), and the caller and moderator listing (see
+ * createModerators), for `caller`.
+ */
+export function createHarnessWorld(
+    wikiContent: string | undefined,
+    caller: HarnessCaller = HARNESS_MODERATOR,
+): HarnessWorld {
     const createModInboxConversation = vi.fn<CreateModInboxConversation>().mockResolvedValue("conversation-id");
     const submitPost = vi
         .fn<DevvitReddit["submitPost"]>()
@@ -76,6 +106,7 @@ export function createHarnessWorld(wikiContent: string | undefined): HarnessWorl
             getPostById: async (id: T3): Promise<ManagedPost> => await reddit.getPostById(id),
             submitPost,
             ...createWiki(wikiContent),
+            ...createModerators(caller),
         },
         redis,
         scheduler,
