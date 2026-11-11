@@ -4,13 +4,16 @@ import { unpinPost } from "../highlights/index.js";
 import { rotationSlot } from "./domain/pinRules.js";
 import { findRotationReason } from "./domain/rotationRules.js";
 import type { RotationReason } from "./domain/rotationRules.js";
-import { placeLivePost } from "./livePostPins.js";
+import { applyPinChange, placeLivePost } from "./livePostPins.js";
 import type { Handover, ManagedComment, ManagedPost, RotationPorts } from "./ports.js";
 
 /** What a refresh did for one thread config. */
 export type ThreadOutcome = "published" | "resumed" | "rotated" | "skipped" | "unchanged" | "updated";
 
-type PublishPorts = Pick<RotationPorts, "highlights" | "livePosts" | "notifyModerators" | "posts">;
+type PublishPorts = Pick<
+    RotationPorts,
+    "appliedThreadConfigs" | "highlights" | "livePosts" | "notifyModerators" | "posts"
+>;
 
 /** One thread config's handover, and the ports that finishing it uses. */
 interface HandoverContext {
@@ -135,7 +138,10 @@ function describeRotationReason(reason: RotationReason): string {
         : `whose rotation time ${reason.rotationTime.toISOString()} has passed`;
 }
 
-/** Brings a live post that is not due up to date: its body, and its comment cap, renewed. */
+/**
+ * Brings a live post that is not due up to date: its body, its comment cap renewed, and its place in the highlights
+ * when its thread config's pin setting changed.
+ */
 async function updateLivePost(post: ManagedPost, config: ThreadConfig, ports: PublishPorts): Promise<ThreadOutcome> {
     const bodyChanged = post.body?.trim() !== config.body.trim();
     if (bodyChanged) {
@@ -144,7 +150,8 @@ async function updateLivePost(post: ManagedPost, config: ThreadConfig, ports: Pu
     }
 
     await ports.livePosts.storeCommentCap(post.id, config.maxComments);
-    return bodyChanged ? "updated" : "unchanged";
+    const moved = await applyPinChange(post, config, ports);
+    return bodyChanged || moved ? "updated" : "unchanged";
 }
 
 /** Rotates a live post that is due, logging why; otherwise brings it up to date. */

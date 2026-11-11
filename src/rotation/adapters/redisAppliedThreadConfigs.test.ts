@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createFakeDevvitContext } from "../../../tests/support/fakeDevvitContext.js";
 import type { ThreadConfig } from "../../configuration/index.js";
 import { redisAppliedThreadConfigs } from "./redisAppliedThreadConfigs.js";
@@ -30,6 +30,47 @@ describe(redisAppliedThreadConfigs, (): void => {
             const { redis } = createFakeDevvitContext();
 
             await expect(redisAppliedThreadConfigs(redis).matches(CONFIG)).resolves.toBe(false);
+        },
+    );
+
+    it("reads back the version recorded under a name", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        const { redis } = createFakeDevvitContext();
+        redis.hGet.mockResolvedValue(JSON.stringify({ ...CONFIG, slot: 2 }));
+
+        await expect(redisAppliedThreadConfigs(redis).read("daily-thread")).resolves.toStrictEqual({
+            ...CONFIG,
+            slot: 2,
+        });
+        expect(redis.hGet).toHaveBeenCalledExactlyOnceWith("AppliedThreadConfigsByName", "daily-thread");
+    });
+
+    it("reads undefined when no version is recorded", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+
+        await expect(redisAppliedThreadConfigs(redis).read("daily-thread")).resolves.toBeUndefined();
+    });
+
+    it.for([
+        ["not JSON", "not json", "data/0 must be object"],
+        ["not a thread config", '{"name":"x"}', "data/0 must have required property 'enabled'"],
+    ])(
+        "reads %s as undefined, and warns",
+        TEST_OPTIONS,
+        async ([, stored, errors]: readonly string[]): Promise<void> => {
+            expect.assertions(2);
+
+            const warn = vi.spyOn(console, "warn").mockImplementation((): undefined => undefined);
+            const { redis } = createFakeDevvitContext();
+            redis.hGet.mockResolvedValue(stored);
+
+            await expect(redisAppliedThreadConfigs(redis).read("daily-thread")).resolves.toBeUndefined();
+            expect(warn).toHaveBeenCalledExactlyOnceWith(
+                `The applied version of thread config daily-thread cannot be read, so its pin is left as it is: ${String(errors)}`,
+            );
         },
     );
 

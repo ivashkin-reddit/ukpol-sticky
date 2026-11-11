@@ -40,6 +40,7 @@ export interface FakeRotationPorts {
     readonly ports: RotationPorts;
     readonly appliedThreadConfigs: Readonly<{
         matches: Mock<AppliedThreadConfigs["matches"]>;
+        read: Mock<AppliedThreadConfigs["read"]>;
         record: Mock<AppliedThreadConfigs["record"]>;
         configNames: Mock<AppliedThreadConfigs["configNames"]>;
         forget: Mock<AppliedThreadConfigs["forget"]>;
@@ -163,25 +164,31 @@ function createFakeRefreshStatus(): FakeRotationPorts["refreshStatus"] {
 
 /**
  * Applied thread configs that behave like the stored ones: a thread config matches the version last recorded under its
- * name, compared as JSON. Each of `configs` that is enabled starts applied, as after its refresh.
+ * name, compared as JSON, and reads back as it. Each of `configs` that is enabled starts applied, as after its refresh.
  */
 function createFakeAppliedThreadConfigs(configs: readonly ThreadConfig[]): FakeRotationPorts["appliedThreadConfigs"] {
     const applied = new Map(
         configs
             .filter((config): boolean => config.enabled)
-            .map((config): readonly [string, string] => [config.name, JSON.stringify(config)]),
+            .map((config): readonly [string, ThreadConfig] => [config.name, config]),
     );
     return {
         matches: vi
             .fn<AppliedThreadConfigs["matches"]>()
             .mockImplementation(
                 async (config: ThreadConfig): Promise<boolean> =>
-                    await Promise.resolve(applied.get(config.name) === JSON.stringify(config)),
+                    await Promise.resolve(JSON.stringify(applied.get(config.name)) === JSON.stringify(config)),
+            ),
+        read: vi
+            .fn<AppliedThreadConfigs["read"]>()
+            .mockImplementation(
+                async (configName: string): Promise<ThreadConfig | undefined> =>
+                    await Promise.resolve(applied.get(configName)),
             ),
         record: vi
             .fn<AppliedThreadConfigs["record"]>()
             .mockImplementation(async (config: ThreadConfig): Promise<void> => {
-                applied.set(config.name, JSON.stringify(config));
+                applied.set(config.name, config);
                 await Promise.resolve();
             }),
         configNames: vi

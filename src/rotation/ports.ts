@@ -156,6 +156,8 @@ export type LoadThreadConfigs = () => Promise<readonly ThreadConfig[]>;
 export interface AppliedThreadConfigs {
     /** Whether `config` is the version its last refresh applied; false until a refresh of it has recorded one. */
     readonly matches: (config: ThreadConfig) => Promise<boolean>;
+    /** The version its last refresh applied; undefined when none is recorded or it no longer reads as a thread config. */
+    readonly read: (configName: string) => Promise<ThreadConfig | undefined>;
     readonly record: (config: ThreadConfig) => Promise<void>;
     /** The names of the thread configs with an applied version recorded. */
     readonly configNames: () => Promise<readonly string[]>;
