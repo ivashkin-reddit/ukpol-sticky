@@ -1,3 +1,5 @@
+import type { StatusFormEvent } from "../status.js";
+import { STATUS_FORM_CHOICE } from "../statusForm.js";
 import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent, RefreshJobEvent } from "../triggers.js";
 
 // Devvit Web delivers each trigger and task as a JSON body, which the server treats as untrusted input: each route
@@ -66,4 +68,27 @@ export function readPostDeleteEvent(body: JsonObject): PostDeleteEvent {
 export function readRefreshJobEvent(body: JsonObject): RefreshJobEvent {
     const data = objectField(body, "data");
     return { configName: data === undefined ? undefined : stringField(data, "configName") };
+}
+
+/** Whether `value` is a list, of values not yet narrowed. */
+function isList(value: unknown): value is readonly unknown[] {
+    return Array.isArray(value);
+}
+
+/** The one string a select's value holds, or undefined: a select submits its choice as a list. */
+function onlyString(value: unknown): string | undefined {
+    if (!isList(value) || value.length !== 1) {
+        return undefined;
+    }
+
+    const [first] = value;
+    return typeof first === "string" ? first : undefined;
+}
+
+/**
+ * The thread config a status form submission chose. Only the select is read: the other fields are read-only, but a
+ * submission can carry any values. Exactly one string is a choice; anything else is none.
+ */
+export function readStatusFormEvent(body: JsonObject): StatusFormEvent {
+    return { configName: onlyString(body[STATUS_FORM_CHOICE]) };
 }

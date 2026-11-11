@@ -15,6 +15,18 @@
       "RefreshCheck": "/internal/jobs/refresh-check"
     }
   },
+  "menu": {
+    "items": [
+      {
+        "label": "Sticky Manager status",
+        "description": "Managed threads, refreshes and the config page",
+        "forUserType": "moderator",
+        "location": "subreddit",
+        "endpoint": "/internal/menu/status"
+      }
+    ]
+  },
+  "forms": { "statusForm": "/internal/forms/status" },
   "permissions": {
     "http": { "enable": false },
     "redis": true,

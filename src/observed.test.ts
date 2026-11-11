@@ -40,6 +40,15 @@ describe(observed, (): void => {
         expect(logSpy).toHaveBeenCalledExactlyOnceWith("Refresh job finished in 25 ms.");
     });
 
+    it("passes on what the handler returns", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        silenceConsole("log");
+        const run = observed("Status menu", "every run", async (): Promise<string> => await Promise.resolve("shown"));
+
+        await expect(run(EVENT, CONTEXT)).resolves.toBe("shown");
+    });
+
     it("stays quiet on success for a high-volume handler", TEST_OPTIONS, async (): Promise<void> => {
         expect.assertions(1);
 

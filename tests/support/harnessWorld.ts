@@ -22,6 +22,24 @@ export interface HarnessWorld {
     readonly submitPost: Mock<DevvitReddit["submitPost"]>;
     /** Delivers `body` to the app's route at `path` twice, as Devvit may, and returns both response statuses. */
     readonly deliverTwice: (path: string, body: Readonly<Record<string, unknown>>) => Promise<readonly number[]>;
+    /** Delivers `body` to the app's route at `path` once, and returns the response's status and JSON body. */
+    readonly deliver: (path: string, body: Readonly<Record<string, unknown>>) => Promise<Delivery>;
+}
+
+/** A route's answer: its HTTP status and its JSON body. */
+export type Delivery = Readonly<{ status: number; body: unknown }>;
+
+async function deliverOnce(
+    context: DevvitContext,
+    path: string,
+    body: Readonly<Record<string, unknown>>,
+): Promise<Delivery> {
+    const response = await createApp((): DevvitContext => context).request(path, {
+        method: "POST",
+        body: JSON.stringify(body),
+    });
+    const responseBody: unknown = await response.json();
+    return { status: response.status, body: responseBody };
 }
 
 /**
@@ -125,5 +143,7 @@ export function createHarnessWorld(
             const second = await app.request(path, init);
             return [first.status, second.status];
         },
+        deliver: async (path: string, body: Readonly<Record<string, unknown>>): Promise<Delivery> =>
+            await deliverOnce(context, path, body),
     };
 }

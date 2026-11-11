@@ -14,6 +14,7 @@ import {
     readModActionEvent,
     readPostDeleteEvent,
     readRefreshJobEvent,
+    readStatusFormEvent,
 } from "./requestBodies.js";
 import type { JsonObject } from "./requestBodies.js";
 
@@ -172,4 +173,24 @@ describe("the request types Devvit Web sends", (): void => {
         expectTypeOf<OnAppUpgradeRequest>().toExtend<JsonObject>();
         expectTypeOf<TaskRequest>().toExtend<JsonObject>();
     });
+});
+
+describe(readStatusFormEvent, (): void => {
+    it.for<readonly [JsonObject, string | undefined]>([
+        [{ threadConfig: ["daily-thread"] }, "daily-thread"],
+        [{ "threadConfig": ["daily-thread"], "thread-1-live-post": "anything a client sends" }, "daily-thread"],
+        [{ threadConfig: [] }, undefined],
+        [{ threadConfig: ["daily-thread", "weekly-thread"] }, undefined],
+        [{ threadConfig: [42] }, undefined],
+        [{ threadConfig: "daily-thread" }, undefined],
+        [{}, undefined],
+    ])(
+        "reads the choice in %j as %j",
+        TEST_OPTIONS,
+        ([body, configName]: readonly [JsonObject, string | undefined]): void => {
+            expect.assertions(1);
+
+            expect(readStatusFormEvent(body)).toStrictEqual({ configName });
+        },
+    );
 });

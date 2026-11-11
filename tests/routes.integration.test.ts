@@ -1,4 +1,5 @@
-import { redis } from "@devvit/web/server";
+import { reddit, redis } from "@devvit/web/server";
+import { T3 as asPostId } from "@devvit/web/shared";
 import { describe, expect, vi } from "vitest";
 import { configReadPorts, rotationPorts } from "../src/composition.js";
 import { storeThreadConfigs } from "../src/configuration/index.js";
@@ -199,5 +200,56 @@ describe("events and tasks delivered twice", (): void => {
         await expect(listRefreshJobs()).resolves.toHaveLength(1);
         await expect(redis.get("LastRevision")).resolves.toBe("rev-1");
         expect(world.createModInboxConversation).not.toHaveBeenCalled();
+    });
+});
+
+describe("the status's routes", (): void => {
+    devvitIt(
+        "the menu item shows a moderator the stored state, the same each time",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(4);
+
+            const { world } = await worldWithLivePost();
+            await startRefreshCheck(rotationPorts(world.context).refreshJobs);
+            const menuItem = { location: "subreddit", targetId: "t5_testsub" };
+
+            const first = await world.deliver("/internal/menu/status", menuItem);
+            const second = await world.deliver("/internal/menu/status", menuItem);
+
+            expect(first.status).toBe(200);
+            // The daily thread config was stored without a refresh applying it, so the refresh check would request one.
+            expect(first.body).toHaveProperty(
+                ["showForm", "form", "fields", 0, "defaultValue"],
+                "1 managed thread: 0 running, 1 needs attention.",
+            );
+            expect(second).toStrictEqual(first);
+            expect(world.createModInboxConversation).not.toHaveBeenCalled();
+        },
+    );
+
+    devvitIt("the menu item refuses a user who is not a moderator", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        freezeDate("2026-04-21T10:00:00Z");
+        silenceConsole("warn");
+        const world = createHarnessWorld(VALID_CONFIG_PAGE, { username: "someone", moderator: false });
+
+        await expect(world.deliver("/internal/menu/status", {})).resolves.toStrictEqual({
+            status: 200,
+            body: { showToast: "Only moderators of r/testsub can see Sticky Manager's status." },
+        });
+    });
+
+    devvitIt("the form opens the chosen live post, the same each time", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(2);
+
+        const { world, postId } = await worldWithLivePost();
+        const { permalink } = await reddit.getPostById(asPostId(postId));
+        const choice = { threadConfig: ["daily-thread"] };
+        const opened = { status: 200, body: { navigateTo: `https://www.reddit.com${permalink}` } };
+
+        await expect(world.deliver("/internal/forms/status", choice)).resolves.toStrictEqual(opened);
+        await expect(world.deliver("/internal/forms/status", choice)).resolves.toStrictEqual(opened);
     });
 });

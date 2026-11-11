@@ -1,8 +1,10 @@
+import type { UiResponse } from "@devvit/web/shared";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { DevvitContext } from "../composition.js";
 import { observed } from "../observed.js";
 import type { SuccessLogging } from "../observed.js";
+import { onStatusForm, onStatusMenu } from "../status.js";
 import {
     onAppInstall,
     onAppUpgrade,
@@ -18,13 +20,16 @@ import {
     readModActionEvent,
     readPostDeleteEvent,
     readRefreshJobEvent,
+    readStatusFormEvent,
 } from "./requestBodies.js";
 import type { JsonObject } from "./requestBodies.js";
 
 // The app's whole HTTP surface. Devvit Web delivers each trigger and scheduled task that devvit.json declares as a JSON
 // POST to its /internal/ endpoint; these routes are exactly those endpoints, and anything else is not found. Each route
 // narrows its body to the handler's event, runs the handler through `observed` with the request's own context, and
-// answers in JSON without error detail, which goes only to the developer log.
+// answers in JSON without error detail, which goes only to the developer log. Each menu item and form that devvit.json
+// declares is a UI route: it answers with what Reddit's UI shows next, and a failure with a fixed message, again
+// without detail.
 
 const HTTP_OK = 200;
 const HTTP_BAD_REQUEST = 400;
@@ -103,17 +108,50 @@ const ROUTES: readonly Route[] = [
     },
 ];
 
+/** A route for a moderator's action in Reddit's UI: it answers with what the UI shows next. */
+interface UiRoute {
+    readonly path: string;
+    /** The handler's name in logs. */
+    readonly name: string;
+    /** The toast the UI shows when the handler fails: a fixed message, with no detail. */
+    readonly failureToast: string;
+    readonly handle: (body: JsonObject, context: DevvitContext) => Promise<UiResponse>;
+}
+
+const STATUS_FAILURE = "Sticky Manager could not show its status. Try again shortly.";
+
+const UI_ROUTES: readonly UiRoute[] = [
+    { path: "/internal/menu/status", name: "Status menu", failureToast: STATUS_FAILURE, handle: onStatusMenu },
+    {
+        path: "/internal/forms/status",
+        name: "Status form",
+        failureToast: STATUS_FAILURE,
+        handle: async (body: JsonObject, context: DevvitContext): Promise<UiResponse> =>
+            await onStatusForm(readStatusFormEvent(body), context),
+    },
+];
+
 /** A run's name in logs: its handler's name, and what the run is for when its body says. */
 function nameRun(route: Route, body: JsonObject): string {
     const subject = route.subject?.(body);
     return subject === undefined ? route.name : `${route.name} for ${subject}`;
 }
 
+/** The request's body when it is a JSON object; otherwise undefined, once the request is logged as ignored. */
+async function readBody(honoContext: Context, path: string): Promise<JsonObject | undefined> {
+    const body = await honoContext.req.json<unknown>().catch((): undefined => undefined);
+    if (isJsonObject(body)) {
+        return body;
+    }
+
+    console.warn(`Ignoring a request to ${path} whose body is not a JSON object.`);
+    return undefined;
+}
+
 function serveRoute(route: Route, getContext: () => DevvitContext): (honoContext: Context) => Promise<Response> {
     return async (honoContext: Context): Promise<Response> => {
-        const body = await honoContext.req.json<unknown>().catch((): undefined => undefined);
-        if (!isJsonObject(body)) {
-            console.warn(`Ignoring a request to ${route.path} whose body is not a JSON object.`);
+        const body = await readBody(honoContext, route.path);
+        if (body === undefined) {
             return honoContext.json(ERROR_RESPONSE, HTTP_BAD_REQUEST);
         }
 
@@ -136,11 +174,34 @@ function serveRoute(route: Route, getContext: () => DevvitContext): (honoContext
     };
 }
 
+function serveUiRoute(route: UiRoute, getContext: () => DevvitContext): (honoContext: Context) => Promise<Response> {
+    return async (honoContext: Context): Promise<Response> => {
+        const body = await readBody(honoContext, route.path);
+        if (body === undefined) {
+            return honoContext.json(ERROR_RESPONSE, HTTP_BAD_REQUEST);
+        }
+
+        const run = observed(
+            route.name,
+            "every run",
+            async (event: JsonObject, provideContext: () => DevvitContext): Promise<UiResponse> =>
+                await route.handle(event, provideContext()),
+        );
+        // `observed` has logged any failure; the moderator sees only the route's fixed message.
+        const response = await run(body, getContext).catch((): UiResponse => ({ showToast: route.failureToast }));
+        return honoContext.json(response, HTTP_OK);
+    };
+}
+
 /** The app's routes. `getContext` gives the Devvit context of the request being served, once per request. */
 export function createApp(getContext: () => DevvitContext): Hono {
     const app = new Hono();
     for (const route of ROUTES) {
         app.post(route.path, serveRoute(route, getContext));
+    }
+
+    for (const route of UI_ROUTES) {
+        app.post(route.path, serveUiRoute(route, getContext));
     }
 
     app.notFound((honoContext: Context): Response => honoContext.json({}, HTTP_NOT_FOUND));

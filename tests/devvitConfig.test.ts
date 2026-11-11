@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { DevvitContext } from "../src/composition.js";
 import { REFRESH_CHECK_JOB_NAME, REFRESH_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
 import { createApp } from "../src/server/app.js";
+import type { onStatusForm, onStatusMenu } from "../src/status.js";
+import type * as Status from "../src/status.js";
+import { STATUS_FORM_NAME } from "../src/statusForm.js";
 import type {
     onAppInstall,
     onAppUpgrade,
@@ -23,6 +26,11 @@ vi.mock(import("../src/triggers.js"), (): Partial<typeof Triggers> => ({
     onPostDelete: vi.fn<typeof onPostDelete>(),
     onRefreshCheck: vi.fn<typeof onRefreshCheck>(),
     onRefreshJob: vi.fn<typeof onRefreshJob>(),
+}));
+
+vi.mock(import("../src/status.js"), (): Partial<typeof Status> => ({
+    onStatusForm: vi.fn<typeof onStatusForm>().mockResolvedValue({}),
+    onStatusMenu: vi.fn<typeof onStatusMenu>().mockResolvedValue({}),
 }));
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
@@ -49,6 +57,19 @@ const EXPECTED_CONFIG = {
             [REFRESH_CHECK_JOB_NAME]: "/internal/jobs/refresh-check",
         },
     },
+    menu: {
+        items: [
+            {
+                label: "Sticky Manager status",
+                description: "Managed threads, refreshes and the config page",
+                forUserType: "moderator",
+                location: "subreddit",
+                endpoint: "/internal/menu/status",
+            },
+        ],
+    },
+    // Keyed by the name the status form is shown under, so devvit.json and the form cannot drift apart.
+    forms: { [STATUS_FORM_NAME]: "/internal/forms/status" },
     permissions: { http: { enable: false }, redis: true, reddit: { enable: true, scope: "user" } },
     scripts: { build: "vite build", dev: "vite build --watch" },
     dev: { subreddit: "ukpol_megabot_dev" },
@@ -57,6 +78,8 @@ const EXPECTED_CONFIG = {
 const DECLARED_ENDPOINTS = [
     ...Object.values(EXPECTED_CONFIG.triggers),
     ...Object.values(EXPECTED_CONFIG.scheduler.tasks),
+    ...EXPECTED_CONFIG.menu.items.map((item: Readonly<{ endpoint: string }>): string => item.endpoint),
+    ...Object.values(EXPECTED_CONFIG.forms),
 ];
 
 describe("devvit.json", (): void => {

@@ -230,6 +230,7 @@ describe(createApp, (): void => {
         ["POST", "/api/threads"],
         ["POST", "/external/anything"],
         ["GET", "/internal/triggers/mod-action"],
+        ["GET", "/internal/menu/status"],
     ])(
         "answers %s %s, which devvit.json does not declare, with HTTP 404",
         TEST_OPTIONS,
