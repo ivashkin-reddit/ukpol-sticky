@@ -89,7 +89,7 @@ A key left empty in YAML parses as null, and ajv admits null for every optional 
 
 - TypeScript stays on 6.0.x until `typescript-eslint`'s peer range admits 7 (`@vitest/eslint-plugin` also needs ≥6).
 - Security fixes: `npm audit fix`, and Devvit upgrades to its `latest` dist-tag. `npm audit fix --force` breaks the project: it installs `devvit@1.0.0`, a 2022 placeholder, and downgrades ESLint. Dependabot sometimes proposes the same downgrade; close those PRs.
-- `package.json` overrides `tmp` under `external-editor` (from the Devvit CLI's `inquirer`) to a patched release; its `//` key holds the WORKAROUND block.
+- `package.json` overrides two packages the Devvit CLI pins to patched releases: `tmp` under `external-editor` (from the CLI's `inquirer`), and `isomorphic-git` under `@devvit/cli`. Its `//` key holds a WORKAROUND block for each.
 - As of November 2026 the remaining audit findings are `minimatch` below 11.0.1 (GHSA-g3hv-75wg-m249), and no consumer accepts 11 yet:
     - ESLint, typescript-eslint and `eslint-plugin-import-x` ask for ^9 or ^10, and the Devvit CLI's `filelist` for ^5 (all dev only).
     - Devvit's `twirp-ts` brings it in through `dot-object`'s `glob@7`, which only `dot-object`'s command-line tool loads. None of the three is in the server bundle, as its sourcemap shows (`grep minimatch dist/server/index.cjs.map` finds nothing).
