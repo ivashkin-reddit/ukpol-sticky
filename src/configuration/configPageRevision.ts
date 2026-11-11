@@ -1,158 +1,19 @@
-import json2md from "json2md";
-import { compact } from "lodash";
-import { parseAllDocuments } from "yaml";
 import type { ModeratorAlert } from "../notifications/index.js";
-import { checkThreadConfigs, CONFIG_PAGE } from "./domain/threadConfig.js";
-import type { ConfigProblem, ThreadConfig } from "./domain/threadConfig.js";
+import { checkConfigPage } from "./configPageCheck.js";
+import type { ConfigPageProblem } from "./configPageCheck.js";
+import { describeProblem, summarizeProblem } from "./configProblemWording.js";
+import type { ThreadConfig } from "./domain/threadConfig.js";
 import type { ConfigPageRevision, ConfigurationPorts } from "./ports.js";
 import { storeThreadConfigs } from "./storedConfigs.js";
-
-const KEEPING_EXISTING_CONFIG = "The existing config will be used until the issue is resolved.";
 
 /** What became of a config page revision: its thread configs were stored, or why they were not. */
 export type ConfigPageOutcome = "rejected" | "stored" | "unavailable" | "unchanged";
 
-type MarkdownBlock = Readonly<{ blockquote: string }> | Readonly<{ p: string }>;
-
-function alert(subject: string, body: readonly MarkdownBlock[]): ModeratorAlert {
-    return { subject, bodyMarkdown: json2md([...body]) };
-}
-
-/** The alert for a config problem, addressed to the moderator who saved the config page. */
-function describeProblem(problem: ConfigProblem, addressee: string): ModeratorAlert {
-    switch (problem.kind) {
-        case "invalidSchema":
-            return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
-                { p: `${addressee}, the config in wiki page ${CONFIG_PAGE} is invalid. Please fix it.` },
-                { p: "Errors:" },
-                { blockquote: problem.errors },
-                { p: KEEPING_EXISTING_CONFIG },
-            ]);
-        case "incompleteSchedule":
-            return alert(`Incomplete schedule in config ${problem.configName}`, [
-                {
-                    p: `${addressee}, config ${problem.configName} must define both frequency and postTime, or omit both to refresh only when maxComments is reached.`,
-                },
-            ]);
-        case "invalidDateFormat":
-            return alert(`Invalid date format in config ${problem.configName}`, [
-                {
-                    p: `${addressee}, the date format in config ${problem.configName} is invalid. Please fix it.`,
-                },
-                { p: `The date format \`${problem.dateFormat}\` is not a valid format string.` },
-            ]);
-        case "duplicateNames":
-            return alert(`Duplicate config names in wiki page ${CONFIG_PAGE}`, [
-                {
-                    p: `${addressee}, there are duplicate config names in wiki page ${CONFIG_PAGE}. Please ensure all config names are unique.`,
-                },
-            ]);
-        case "invalidValue":
-            return alert(`Invalid config in wiki page ${CONFIG_PAGE}`, [
-                {
-                    p: `${addressee}, config "${problem.configName}" is invalid: ${problem.reason}. Please fix it.`,
-                },
-                { p: KEEPING_EXISTING_CONFIG },
-            ]);
-    }
-}
-
-/** A config problem in one line, for the app's logs. */
-function summarizeProblem(problem: ConfigProblem): string {
-    switch (problem.kind) {
-        case "invalidSchema":
-            return `invalid config: ${problem.errors}`;
-        case "incompleteSchedule":
-            return `thread config ${problem.configName} sets only one of frequency and postTime`;
-        case "invalidDateFormat":
-            return `thread config ${problem.configName} has an invalid date format (${problem.dateFormat}): ${problem.cause.message}`;
-        case "duplicateNames":
-            return "two thread configs share a name";
-        case "invalidValue":
-            return `thread config "${problem.configName}" is invalid: ${problem.reason}`;
-    }
-}
-
-interface YamlDocument {
-    readonly errors: readonly Readonly<{ message: string }>[];
-    readonly toJSON: () => unknown;
-}
-
-function describeYamlErrors(parseErrors: readonly string[], addressee: string): ModeratorAlert {
-    return alert(`Invalid YAML in wiki page ${CONFIG_PAGE}`, [
-        { p: `${addressee}, the wiki page ${CONFIG_PAGE} contains invalid YAML. Please fix it.` },
-        { p: "Errors:" },
-        { blockquote: parseErrors.join("\n") },
-        { p: KEEPING_EXISTING_CONFIG },
-    ]);
-}
-
-/**
- * The documents' values, or the errors that kept documents from producing one. An alias to an anchor that does not
- * exist (or is in another document) parses without errors and only fails here.
- */
-function documentValues(
-    documents: readonly YamlDocument[],
-): Readonly<{ errors: string[] }> | Readonly<{ values: unknown[] }> {
-    const errors: string[] = [];
-    const values: unknown[] = [];
-    for (const [index, document] of documents.entries()) {
-        try {
-            values.push(document.toJSON());
-        } catch (error: unknown) {
-            if (!(error instanceof Error)) {
-                throw error;
-            }
-
-            errors.push(`Document ${String(index + 1)}: ${error.message}`);
-        }
-    }
-
-    return errors.length > 0 ? { errors } : { values };
-}
-
 type Rejection = Readonly<{ alert: ModeratorAlert; summary: string }>;
 
-function rejectYaml(errors: readonly string[], addressee: string): Rejection & Readonly<{ kind: "invalid" }> {
-    return {
-        kind: "invalid",
-        alert: describeYamlErrors(errors, addressee),
-        summary: `invalid YAML: ${errors.map((error): string => error.trim()).join(" | ")}`,
-    };
-}
-
-type PageCheck =
-    (Rejection & Readonly<{ kind: "invalid" }>) | Readonly<{ kind: "valid"; configs: readonly ThreadConfig[] }>;
-
-/** The config page's YAML documents as values, or the errors in parsing them. */
-function parseConfigPage(content: string): Readonly<{ errors: string[] }> | Readonly<{ values: unknown[] }> {
-    const documents: readonly YamlDocument[] = parseAllDocuments(content);
-    const parseErrors = documents.flatMap((document: YamlDocument, index: number): string[] =>
-        document.errors.map(
-            (error: Readonly<{ message: string }>): string => `Document ${String(index + 1)}: ${error.message}`,
-        ),
-    );
-    return parseErrors.length > 0 ? { errors: parseErrors } : documentValues(documents);
-}
-
-/** Parses the config page's YAML documents and checks the thread configs they define. */
-function checkConfigPage(content: string, addressee: string): PageCheck {
-    const parsed = parseConfigPage(content);
-    if ("errors" in parsed) {
-        return rejectYaml(parsed.errors, addressee);
-    }
-
-    // Empty documents parse to null; compact drops them before checking.
-    const check = checkThreadConfigs(compact(parsed.values));
-    if (check.kind === "invalid") {
-        return {
-            kind: "invalid",
-            alert: describeProblem(check.problem, addressee),
-            summary: summarizeProblem(check.problem),
-        };
-    }
-
-    return check;
+/** How a revision with `problem` is rejected: the alert to whoever saved it, and the log's summary. */
+function rejectionFor(problem: ConfigPageProblem, addressee: string): Rejection {
+    return { alert: describeProblem(problem, addressee), summary: summarizeProblem(problem) };
 }
 
 type RevisionRead =
@@ -220,9 +81,9 @@ async function applyRevision(
     moderatorName: string | undefined,
     ports: ConfigurationPorts,
 ): Promise<"rejected" | "stored"> {
-    const check = checkConfigPage(revision.content, addresseeOf(revision, moderatorName));
+    const check = checkConfigPage(revision.content);
     if (check.kind === "invalid") {
-        await rejectRevision(revision, check, ports);
+        await rejectRevision(revision, rejectionFor(check.problem, addresseeOf(revision, moderatorName)), ports);
         return "rejected";
     }
 
