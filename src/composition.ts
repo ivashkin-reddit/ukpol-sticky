@@ -4,6 +4,8 @@ import { wikiConfigPage } from "./configuration/adapters/wikiConfigPage.js";
 import type { WikiConfigPageContext } from "./configuration/adapters/wikiConfigPage.js";
 import { getThreadConfigs } from "./configuration/index.js";
 import type { ConfigReadPorts, ConfigurationPorts, ThreadConfig } from "./configuration/index.js";
+import { redditHighlights } from "./highlights/adapters/redditHighlights.js";
+import type { RedditHighlightsContext } from "./highlights/adapters/redditHighlights.js";
 import type { ModeratorsContext } from "./moderators.js";
 import { modmailNotifier } from "./notifications/adapters/modmail.js";
 import type { ModmailContext } from "./notifications/adapters/modmail.js";
@@ -40,6 +42,7 @@ export type ConfigReadContext = ModmailContext & Readonly<{ redis: AlertLatchRed
 export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 
 export type RotationContext = ConfigReadContext &
+    RedditHighlightsContext &
     RedditPostsContext &
     Readonly<{
         redis: AppliedThreadConfigsRedis &
@@ -72,6 +75,7 @@ export function rotationPorts(context: RotationContext): RotationPorts {
     const configRead = configReadPorts(context);
     return {
         appliedThreadConfigs: redisAppliedThreadConfigs(context.redis),
+        highlights: redditHighlights(context),
         livePosts: redisLivePosts(context.redis),
         notifyModerators: configRead.notifyModerators,
         posts: redditPosts(context),

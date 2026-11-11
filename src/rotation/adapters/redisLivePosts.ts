@@ -32,6 +32,11 @@ function isOptionalString(value: unknown): value is string | undefined {
     return value === undefined || typeof value === "string";
 }
 
+function isOptionalNumber(value: unknown): value is number | undefined {
+    return value === undefined || typeof value === "number";
+}
+
+/** A handover as stored; one recorded before handovers kept a slot has none. */
 function isHandover(value: unknown): value is Handover {
     return (
         typeof value === "object" &&
@@ -39,7 +44,8 @@ function isHandover(value: unknown): value is Handover {
         "newPostId" in value &&
         typeof value.newPostId === "string" &&
         isOptionalString("oldPostId" in value ? value.oldPostId : undefined) &&
-        isOptionalString("endNoteId" in value ? value.endNoteId : undefined)
+        isOptionalString("endNoteId" in value ? value.endNoteId : undefined) &&
+        isOptionalNumber("slot" in value ? value.slot : undefined)
     );
 }
 

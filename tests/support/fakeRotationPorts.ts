@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ThreadConfig } from "../../src/configuration/index.js";
+import type { Highlight } from "../../src/highlights/index.js";
 import type { AlertLatch, NotifyModerators } from "../../src/notifications/index.js";
 import type {
     AppliedThreadConfigs,
@@ -12,10 +13,13 @@ import type {
     RefreshStatusStore,
     RetiredRefreshRecords,
     RotationPorts,
-    ThreadLocks,
 } from "../../src/rotation/index.js";
 import { createFakeAlertLatch } from "./fakeAlertLatch.js";
 import type { FakeAlertLatch } from "./fakeAlertLatch.js";
+import { createFakeHighlights } from "./fakeHighlights.js";
+import type { FakeHighlights } from "./fakeHighlights.js";
+import { createFakeThreadFailureAlerts, createFakeThreadLocks } from "./fakeThreadLocks.js";
+import type { FakeThreadLocks } from "./fakeThreadLocks.js";
 import type { CalledMock, Writes } from "./writes.js";
 
 export interface FakeLivePosts {
@@ -40,6 +44,7 @@ export interface FakeRotationPorts {
         configNames: Mock<AppliedThreadConfigs["configNames"]>;
         forget: Mock<AppliedThreadConfigs["forget"]>;
     }>;
+    readonly highlights: FakeHighlights;
     readonly livePosts: FakeLivePosts;
     readonly notifyModerators: Mock<NotifyModerators>;
     readonly posts: Readonly<{
@@ -70,7 +75,7 @@ export interface FakeRotationPorts {
     readonly threadConfigs: Mock<LoadThreadConfigs>;
     /** The latch of the alert about the named thread config's failed refreshes, the same one each time. */
     readonly threadFailureAlert: (configName: string) => FakeAlertLatch;
-    readonly threadLocks: Readonly<{ tryLock: Mock<ThreadLocks["tryLock"]>; unlock: Mock<ThreadLocks["unlock"]> }>;
+    readonly threadLocks: FakeThreadLocks;
     /** Every method that writes, schedules, posts, sends or locks, for checking that a use case only reads. */
     readonly writes: Writes;
 }
@@ -78,6 +83,7 @@ export interface FakeRotationPorts {
 /** The writing methods of a set of rotation fakes, as far as their calls go. */
 type RotationWriteMethods = Readonly<{
     appliedThreadConfigs: Readonly<Record<"forget" | "record", CalledMock>>;
+    highlights: Readonly<Record<"pin" | "reorder" | "unpin", CalledMock>>;
     livePosts: Readonly<
         Record<
             "forget" | "forgetCommentCap" | "forgetHandover" | "saveHandover" | "set" | "storeCommentCap",
@@ -98,6 +104,9 @@ function listWrites(fakes: RotationWriteMethods): Writes {
     return {
         "appliedThreadConfigs.record": fakes.appliedThreadConfigs.record,
         "appliedThreadConfigs.forget": fakes.appliedThreadConfigs.forget,
+        "highlights.pin": fakes.highlights.pin,
+        "highlights.unpin": fakes.highlights.unpin,
+        "highlights.reorder": fakes.highlights.reorder,
         "livePosts.set": fakes.livePosts.set,
         "livePosts.forget": fakes.livePosts.forget,
         "livePosts.saveHandover": fakes.livePosts.saveHandover,
@@ -190,37 +199,6 @@ function createFakeAppliedThreadConfigs(configs: readonly ThreadConfig[]): FakeR
     };
 }
 
-/** Thread locks that behave like the real ones: one holder per thread config until it unlocks. */
-function createFakeThreadLocks(): FakeRotationPorts["threadLocks"] {
-    const held = new Set<string>();
-    return {
-        tryLock: vi.fn<ThreadLocks["tryLock"]>().mockImplementation(async (configName: string): Promise<boolean> => {
-            const free = !held.has(configName);
-            held.add(configName);
-            return await Promise.resolve(free);
-        }),
-        unlock: vi.fn<ThreadLocks["unlock"]>().mockImplementation(async (configName: string): Promise<void> => {
-            held.delete(configName);
-            await Promise.resolve();
-        }),
-    };
-}
-
-/** One alert latch per thread config name, created the first time it is asked for. */
-function createFakeThreadFailureAlerts(): (configName: string) => FakeAlertLatch {
-    const latches = new Map<string, FakeAlertLatch>();
-    return (configName: string): FakeAlertLatch => {
-        const existing = latches.get(configName);
-        if (existing !== undefined) {
-            return existing;
-        }
-
-        const created = createFakeAlertLatch();
-        latches.set(configName, created);
-        return created;
-    };
-}
-
 /** Posts with no answers of their own: each test sets what it reads and publishes. */
 function createFakePosts(): FakeRotationPorts["posts"] {
     return {
@@ -250,14 +228,17 @@ function createFakeRefreshJobs(configs: readonly ThreadConfig[]): FakeRotationPo
 /**
  * Rotation ports whose every method is a typed mock: no live posts (unless `livePosts` implements them), a refresh of
  * each enabled thread config pending and the hourly check scheduled, alert latches that can be claimed, working thread
- * locks, and `configs` as the thread configs in force, each enabled one already applied by its refresh.
+ * locks, `configs` as the thread configs in force, each enabled one already applied by its refresh, and `highlights`
+ * as the subreddit's highlights, which behave as Reddit's.
  */
 export function createFakeRotationPorts(
     configs: readonly ThreadConfig[] = [],
     livePosts: Partial<LivePosts> = {},
+    highlights: readonly Highlight[] = [],
 ): FakeRotationPorts {
     const fakes: Omit<FakeRotationPorts, "ports" | "writes"> = {
         appliedThreadConfigs: createFakeAppliedThreadConfigs(configs),
+        highlights: createFakeHighlights(highlights),
         livePosts: createFakeLivePosts(livePosts),
         notifyModerators: vi.fn<NotifyModerators>().mockResolvedValue(undefined),
         posts: createFakePosts(),
@@ -278,6 +259,7 @@ export function createFakeRotationPorts(
     return {
         ports: {
             appliedThreadConfigs: fakes.appliedThreadConfigs,
+            highlights: fakes.highlights.highlights,
             livePosts: fakes.livePosts,
             notifyModerators: fakes.notifyModerators,
             posts: fakes.posts,

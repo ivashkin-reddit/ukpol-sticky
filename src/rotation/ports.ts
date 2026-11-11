@@ -1,4 +1,5 @@
 import type { ThreadConfig } from "../configuration/index.js";
+import type { Highlights } from "../highlights/index.js";
 import type { AlertLatch, NotifyModerators } from "../notifications/index.js";
 import type { NextRefreshReason } from "./domain/refreshRules.js";
 
@@ -19,7 +20,6 @@ export interface ManagedPost {
     readonly createdAt: Date;
     readonly numberOfComments: number;
     readonly body?: string | undefined;
-    readonly stickied: boolean;
     readonly locked: boolean;
     /** Who distinguished the post ("moderator", say); undefined while it is not distinguished. */
     readonly distinguishedBy: string | undefined;
@@ -27,8 +27,6 @@ export interface ManagedPost {
     readonly distinguish: () => Promise<void>;
     readonly edit: (options: Readonly<{ text: string }>) => Promise<void>;
     readonly lock: () => Promise<void>;
-    readonly sticky: () => Promise<void>;
-    readonly unsticky: () => Promise<void>;
 }
 
 /** The subreddit's posts, as rotation reads and publishes them. */
@@ -40,8 +38,8 @@ export interface Posts {
 }
 
 /**
- * The rest of a rotation once its new live post is published: distinguishing and stickying the new post, then
- * retiring the old one. Recorded before any of it starts and deleted once all of it is done, so the next refresh after
+ * The rest of a rotation once its new live post is published: distinguishing and pinning the new post, then retiring
+ * the old one. Recorded before any of it starts and deleted once all of it is done, so the next refresh after
  * a failure finishes it.
  */
 export interface Handover {
@@ -50,6 +48,8 @@ export interface Handover {
     readonly oldPostId?: string | undefined;
     /** The end note added to the old post, once added: finishing again distinguishes it rather than adding another. */
     readonly endNoteId?: string | undefined;
+    /** The slot to pin the new post in; undefined when its thread config is not pinned. */
+    readonly slot?: number | undefined;
 }
 
 /** Which post is live for each thread config, each live post's comment cap, and handovers not yet finished. */
@@ -176,6 +176,7 @@ export interface RetiredRefreshRecords {
 /** Every port the rotation use cases take; each use case declares the subset it uses. */
 export interface RotationPorts {
     readonly appliedThreadConfigs: AppliedThreadConfigs;
+    readonly highlights: Highlights;
     readonly livePosts: LivePosts;
     readonly notifyModerators: NotifyModerators;
     readonly posts: Posts;

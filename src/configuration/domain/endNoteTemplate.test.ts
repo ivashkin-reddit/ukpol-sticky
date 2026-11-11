@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderEndNote } from "./endNoteTemplate.js";
+import { markdownLink, renderEndNote } from "./endNoteTemplate.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -40,5 +40,15 @@ describe(renderEndNote, (): void => {
         expect(renderEndNote("{{new post}}", newPost)).toBe(
             String.raw`[Live: \[Budget\] \\ Q&A](/r/ukpolitics/comments/abc123/daily_thread_21042026/)`,
         );
+    });
+});
+
+describe(markdownLink, (): void => {
+    it("links the post, titled with its title, escaping what would end the link text", TEST_OPTIONS, (): void => {
+        expect.assertions(1);
+
+        expect(
+            markdownLink({ title: String.raw`A [b] c\d`, permalink: "https://www.reddit.com/r/x/comments/1/" }),
+        ).toBe(String.raw`[A \[b\] c\\d](https://www.reddit.com/r/x/comments/1/)`);
     });
 });

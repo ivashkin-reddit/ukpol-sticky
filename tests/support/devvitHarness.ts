@@ -1,17 +1,30 @@
 import { reddit, redis, scheduler } from "@devvit/web/server";
 import type { ScheduledCronJob, ScheduledJob } from "@devvit/web/server";
+import type { T1 } from "@devvit/web/shared";
 import { vi } from "vitest";
 import type { RotationContext } from "../../src/composition.js";
 import { REFRESH_CHECK_JOB_NAME, REFRESH_JOB_NAME } from "../../src/rotation/adapters/schedulerRefreshJobs.js";
+import type { ManagedComment, ManagedPost } from "../../src/rotation/index.js";
+import { harnessPost, harnessSubreddit } from "./harnessHighlights.js";
 
 /** createDevvitTest()'s default subreddit and app, as its request context names them. */
 export const TEST_SUBREDDIT_ID = "t5_testsub";
 export const TEST_SUBREDDIT_NAME = "testsub";
 export const TEST_APP_SLUG = "test-app";
 
-/** Devvit's in-memory test harness, as the composition root builds rotation ports from it. */
+/**
+ * Devvit's in-memory test harness, as the composition root builds rotation ports from it, with stand-ins for the
+ * highlight calls the harness does not implement (see harnessHighlights.ts).
+ */
 export const HARNESS_CONTEXT: RotationContext = {
-    reddit,
+    reddit: {
+        modMail: reddit.modMail,
+        getCommentById: async (id: T1): Promise<ManagedComment> => await reddit.getCommentById(id),
+        getCurrentSubreddit: harnessSubreddit,
+        getPostById: harnessPost,
+        submitPost: async (options: Parameters<RotationContext["reddit"]["submitPost"]>[0]): Promise<ManagedPost> =>
+            await reddit.submitPost(options),
+    },
     redis,
     scheduler,
     subredditId: TEST_SUBREDDIT_ID,

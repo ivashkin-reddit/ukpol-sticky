@@ -1,9 +1,11 @@
 import type { RedditClient, RedisClient, SchedulerClient } from "@devvit/web/server";
+import type { T3 } from "@devvit/web/shared";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { ConfigurationContext, DevvitContext, RotationContext } from "../../src/composition.js";
 import type { ModeratorEntry, ModeratorsContext } from "../../src/moderators.js";
 import type { LockReleaseTransaction, ThreadLocksRedis } from "../../src/rotation/adapters/redisThreadLocks.js";
+import type { FakeRedditPost } from "./fakePosts.js";
 
 export interface FakeTransaction {
     readonly transaction: LockReleaseTransaction;
@@ -40,7 +42,9 @@ export interface FakeReddit {
     readonly getCurrentUsername: Mock<DevvitReddit["getCurrentUsername"]>;
     readonly getModerators: Mock<DevvitReddit["getModerators"]>;
     readonly getCommentById: Mock<DevvitReddit["getCommentById"]>;
-    readonly getPostById: Mock<DevvitReddit["getPostById"]>;
+    readonly getCurrentSubreddit: Mock<DevvitReddit["getCurrentSubreddit"]>;
+    /** Typed as one post that both rotation and the highlights adapter read: a mock of their intersection would not be. */
+    readonly getPostById: Mock<(id: T3) => Promise<FakeRedditPost>>;
     readonly getWikiPage: Mock<DevvitReddit["getWikiPage"]>;
     readonly getWikiPages: Mock<DevvitReddit["getWikiPages"]>;
     readonly submitPost: Mock<DevvitReddit["submitPost"]>;
@@ -86,7 +90,13 @@ function createFakeReddit(): FakeReddit {
         getCurrentUsername: vi.fn<DevvitReddit["getCurrentUsername"]>().mockResolvedValue(undefined),
         getModerators: vi.fn<DevvitReddit["getModerators"]>().mockReturnValue(listingOf([])),
         getCommentById: vi.fn<DevvitReddit["getCommentById"]>(),
-        getPostById: vi.fn<DevvitReddit["getPostById"]>(),
+        getCurrentSubreddit: vi.fn<DevvitReddit["getCurrentSubreddit"]>().mockResolvedValue({
+            getHighlightedPosts: async (): Promise<[]> => await Promise.resolve([]),
+            reorderHighlightedPosts: async (): Promise<void> => {
+                await Promise.resolve();
+            },
+        }),
+        getPostById: vi.fn<(id: T3) => Promise<FakeRedditPost>>(),
         getWikiPage: vi.fn<DevvitReddit["getWikiPage"]>(),
         getWikiPages: vi.fn<DevvitReddit["getWikiPages"]>().mockResolvedValue([]),
         submitPost: vi.fn<DevvitReddit["submitPost"]>(),

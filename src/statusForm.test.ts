@@ -22,7 +22,6 @@ const HEALTHY: ReadableThreadStatus = {
         kind: "readable",
         id: "t3_daily",
         title: "Daily thread",
-        stickied: true,
         createdAt: new Date("2026-04-21T05:00:00Z"),
         comments: 12,
         commentCap: 100,
@@ -137,7 +136,7 @@ describe(layOutStatus, (): void => {
                             shown(
                                 "thread-2-live-post",
                                 "Live post",
-                                "Daily thread (t3_daily), stickied, posted 2026-04-21 05:00 UTC (5 hours ago)",
+                                "Daily thread (t3_daily), posted 2026-04-21 05:00 UTC (5 hours ago)",
                             ),
                             shown("thread-2-comments", "Comments", "12 of 100"),
                             shown(

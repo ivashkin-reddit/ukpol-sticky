@@ -7,6 +7,7 @@ import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js
 import { COMMENT_CAP, fullPost, newPost, STICKY_CONFIG } from "../../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import type { ThreadConfig } from "../configuration/index.js";
+import type { Highlight } from "../highlights/index.js";
 import type { Handover } from "./ports.js";
 import { refreshThread } from "./threadRefresh.js";
 
@@ -69,20 +70,18 @@ describe(refreshThread, (): void => {
 
 const RETIRING_CONFIG: ThreadConfig = { ...STICKY_CONFIG, endNote: "Moved on", lockOnRefresh: true };
 
-// The new live post, just published, and the old one it replaces, unstickied at the start of the rotation.
+// The new live post, just published, and the old one it replaces, unpinned at the start of the rotation.
 const NEW_POST: FakePostFields = {
     body: RETIRING_CONFIG.body,
     createdAt: new Date("2026-04-21T10:00:00Z"),
     id: "t3_new",
     numberOfComments: 0,
-    stickied: false,
 };
 const OLD_POST: FakePostFields = {
     body: RETIRING_CONFIG.body,
     createdAt: new Date("2026-04-21T09:00:00Z"),
     id: "t3_old",
     numberOfComments: COMMENT_CAP,
-    stickied: false,
 };
 
 interface UnfinishedHandover {
@@ -91,14 +90,17 @@ interface UnfinishedHandover {
     readonly oldPost: FakePost;
 }
 
-/** A thread config whose last rotation stopped after publishing t3_new: `handover` is what it recorded. */
+/**
+ * A thread config whose last rotation stopped after publishing t3_new: `handover` is what it recorded, and
+ * `reddit.highlights` what the subreddit's highlights hold (none, by default).
+ */
 function unfinishedHandover(
     handover: Handover,
-    reddit: Readonly<{ newPost?: FakePostFields; oldPost?: FakePostFields }> = {},
+    reddit: Readonly<{ newPost?: FakePostFields; oldPost?: FakePostFields; highlights?: readonly Highlight[] }> = {},
 ): UnfinishedHandover {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    const fakes = createFakeRotationPorts([RETIRING_CONFIG]);
+    const fakes = createFakeRotationPorts([RETIRING_CONFIG], {}, reddit.highlights);
     const replacement = createFakePost(reddit.newPost ?? NEW_POST);
     const oldPost = createFakePost(reddit.oldPost ?? OLD_POST);
     fakes.livePosts.handovers.mockResolvedValue({ [RETIRING_CONFIG.name]: handover });
@@ -110,7 +112,7 @@ function unfinishedHandover(
 
 describe("refreshThread with a handover its rotation left unfinished", (): void => {
     it(
-        "finishes it first: distinguishes and stickies the new post, retires the old one, then forgets the handover",
+        "finishes it first: distinguishes and pins the new post, retires the old one, then forgets the handover",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(5);
@@ -118,7 +120,11 @@ describe("refreshThread with a handover its rotation left unfinished", (): void 
             const { fakes, replacement, oldPost } = unfinishedHandover({ newPostId: "t3_new", oldPostId: "t3_old" });
 
             await expect(refreshThread(RETIRING_CONFIG, fakes.ports)).resolves.toBe("resumed");
-            expect([replacement.post.distinguishedBy, replacement.post.stickied]).toStrictEqual(["moderator", true]);
+            // A handover recorded before handovers kept a slot pins the new post where its thread config says.
+            expect([replacement.post.distinguishedBy, fakes.highlights.current()]).toStrictEqual([
+                "moderator",
+                [{ postId: "t3_new", label: "megathread" }],
+            ]);
             expect(oldPost.addComment).toHaveBeenCalledExactlyOnceWith({ text: "Moved on" });
             // The end note is distinguished as a sticky comment, and the old post locked.
             expect([oldPost.commentDistinguish.mock.calls, oldPost.post.locked]).toStrictEqual([[[true]], true]);
@@ -133,17 +139,18 @@ describe("refreshThread with a handover its rotation left unfinished", (): void 
             expect.assertions(4);
 
             const { fakes, replacement, oldPost } = unfinishedHandover(
-                { newPostId: "t3_new", oldPostId: "t3_old", endNoteId: "t1_old" },
+                { newPostId: "t3_new", oldPostId: "t3_old", endNoteId: "t1_old", slot: 1 },
                 {
-                    newPost: { ...NEW_POST, distinguishedBy: "moderator", stickied: true },
+                    newPost: { ...NEW_POST, distinguishedBy: "moderator" },
                     oldPost: { ...OLD_POST, locked: true },
+                    highlights: [{ postId: "t3_new", label: "megathread" }],
                 },
             );
 
             await refreshThread(RETIRING_CONFIG, fakes.ports);
 
             expect(
-                [replacement.distinguish, replacement.sticky, oldPost.lock, oldPost.addComment].map(
+                [replacement.distinguish, fakes.highlights.pin, oldPost.lock, oldPost.addComment].map(
                     (action: Readonly<{ mock: Readonly<{ calls: readonly unknown[] }> }>): number =>
                         action.mock.calls.length,
                 ),
@@ -221,7 +228,6 @@ describe("refreshThread logging why it rotates", (): void => {
             createdAt: new Date("2026-04-20T05:00:00Z"),
             id: "t3_live",
             numberOfComments: 10,
-            stickied: true,
         });
         const next = newPost("t3_next");
         fakes.livePosts.get.mockResolvedValue("t3_live");

@@ -1,13 +1,16 @@
-import { getSchedule, renderEndNote, renderTitle } from "../configuration/index.js";
+import { getPin, getSchedule, renderEndNote, renderTitle } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
+import { unpinPost } from "../highlights/index.js";
+import { rotationSlot } from "./domain/pinRules.js";
 import { findRotationReason } from "./domain/rotationRules.js";
 import type { RotationReason } from "./domain/rotationRules.js";
+import { placeLivePost } from "./livePostPins.js";
 import type { Handover, ManagedComment, ManagedPost, RotationPorts } from "./ports.js";
 
 /** What a refresh did for one thread config. */
 export type ThreadOutcome = "published" | "resumed" | "rotated" | "skipped" | "unchanged" | "updated";
 
-type PublishPorts = Pick<RotationPorts, "livePosts" | "posts">;
+type PublishPorts = Pick<RotationPorts, "highlights" | "livePosts" | "notifyModerators" | "posts">;
 
 /** One thread config's handover, and the ports that finishing it uses. */
 interface HandoverContext {
@@ -17,8 +20,8 @@ interface HandoverContext {
 }
 
 /**
- * Distinguishes the new live post and stickies it if its thread config asks, unless Reddit shows either done. Returns
- * the new post as Reddit shows it.
+ * Distinguishes the new live post unless Reddit shows it done, and pins it in the handover's slot (for a handover
+ * recorded before handovers kept a slot, the slot its thread config gives). Returns the new post as Reddit shows it.
  */
 async function establishNewPost({ config, handover, ports }: HandoverContext): Promise<ManagedPost> {
     const post = await ports.posts.get(handover.newPostId);
@@ -26,8 +29,9 @@ async function establishNewPost({ config, handover, ports }: HandoverContext): P
         await post.distinguish();
     }
 
-    if (config.sticky === true && !post.stickied) {
-        await post.sticky();
+    const slot = handover.slot ?? rotationSlot(getPin(config), undefined);
+    if (slot !== undefined) {
+        await placeLivePost({ config, post, slot }, ports);
     }
 
     await ports.livePosts.storeCommentCap(post.id, config.maxComments);
@@ -69,7 +73,7 @@ async function retireOldPost(postId: string, newPost: ManagedPost, context: Hand
 }
 
 /**
- * Finishes a handover: records the new post as live, distinguishes and stickies it, retires the old post, then
+ * Finishes a handover: records the new post as live, distinguishes and pins it, retires the old post, then
  * forgets the handover. Each step checks what Reddit shows, or what the handover records, before acting, so finishing
  * again after a failure repeats none of them; the handover stays recorded until all of them are done.
  */
@@ -85,23 +89,41 @@ async function finishHandover(context: HandoverContext): Promise<void> {
     await ports.livePosts.forgetHandover(config.name);
 }
 
+/** Unpins the retiring live post if it is pinned, wherever it sits; the slot it had. */
+async function unpinRetiringPost(
+    post: ManagedPost,
+    config: ThreadConfig,
+    ports: PublishPorts,
+): Promise<number | undefined> {
+    const slot = await unpinPost(post.id, ports.highlights);
+    if (slot !== undefined) {
+        console.log(
+            `Unpinned retiring live post ${post.id} of thread config ${config.name} from slot ${String(slot)}.`,
+        );
+    }
+
+    return slot;
+}
+
 /**
  * Publishes a new live post for the thread config, retiring the previous one if there is one. The old post first
- * gives up its sticky slot (a subreddit has two, and the replacement may need one); the replacement is published, and
- * the handover that remains is recorded before any of it starts, so a refresh after a failure finishes it.
+ * gives up its slot, so pinning the replacement needs no seventh highlight; the replacement is published, and the
+ * handover that remains, with the slot the replacement takes, is recorded before any of it starts, so a refresh after a
+ * failure finishes it.
  */
 export async function rotateLivePost(
     previousPost: ManagedPost | undefined,
     config: ThreadConfig,
     ports: PublishPorts,
 ): Promise<void> {
-    if (previousPost?.stickied === true) {
-        await previousPost.unsticky();
-    }
-
+    const oldSlot = previousPost === undefined ? undefined : await unpinRetiringPost(previousPost, config, ports);
     const newPost = await ports.posts.publish({ title: renderTitle(config.title, new Date()), body: config.body });
-    const handover: Handover =
-        previousPost === undefined ? { newPostId: newPost.id } : { newPostId: newPost.id, oldPostId: previousPost.id };
+    const slot = rotationSlot(getPin(config), oldSlot);
+    const handover: Handover = {
+        newPostId: newPost.id,
+        ...(previousPost === undefined ? {} : { oldPostId: previousPost.id }),
+        ...(slot === undefined ? {} : { slot }),
+    };
     await ports.livePosts.saveHandover(config.name, handover);
     console.log(`Published live post ${newPost.id} for thread config ${config.name}.`);
     await finishHandover({ config, handover, ports });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { freezeTime } from "../../tests/support/fakeClock.js";
+import { unlabelled } from "../../tests/support/fakeHighlights.js";
 import { findingPostsById } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import {
@@ -47,18 +48,18 @@ describe(rotateIfCapReached, (): void => {
         expect.assertions(3);
 
         const logSpy = vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        const fakes = createFakeRotationPorts([STICKY_CONFIG], {}, unlabelled("t3_full"));
         fakes.livePosts.getCommentCap.mockResolvedValue(100);
         fakes.livePosts.all.mockResolvedValue({ "sticky-thread": "t3_full" });
         fakes.livePosts.get.mockResolvedValue("t3_full");
-        const full = fullPost("t3_full", 100);
-        fakes.posts.get.mockResolvedValue(full.post);
-        fakes.posts.publish.mockResolvedValue(newPost("t3_next").post);
+        const next = newPost("t3_next").post;
+        fakes.posts.get.mockImplementation(findingPostsById([fullPost("t3_full", 100).post, next]));
+        fakes.posts.publish.mockResolvedValue(next);
 
         await rotateIfCapReached(commentOn("t3_full"), fakes.ports);
 
         expect(logSpy).toHaveBeenNthCalledWith(1, "Post t3_full has reached its comment cap of 100.");
-        expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
+        expect(fakes.highlights.unpin).toHaveBeenCalledExactlyOnceWith("t3_full");
         expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("sticky-thread", "t3_next");
     });
 

@@ -86,7 +86,7 @@ export function describeLivePost(livePost: LivePostStatus, now: Date): string {
         case "unreadable":
             return `Could not read ${livePost.postId} from Reddit.`;
         case "readable":
-            return `${livePost.title} (${livePost.id})${livePost.stickied ? ", stickied" : ""}, posted ${formatTime(livePost.createdAt, now)}`;
+            return `${livePost.title} (${livePost.id}), posted ${formatTime(livePost.createdAt, now)}`;
     }
 }
 

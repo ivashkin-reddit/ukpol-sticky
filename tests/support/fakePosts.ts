@@ -1,9 +1,13 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
+import type { HighlightablePost } from "../../src/highlights/adapters/redditHighlights.js";
 import type { ManagedComment, ManagedPost, Posts } from "../../src/rotation/index.js";
 
+/** A Reddit post as both rotation and the highlights adapter read it. */
+export type FakeRedditPost = HighlightablePost & ManagedPost;
+
 export interface FakePost {
-    readonly post: ManagedPost;
+    readonly post: FakeRedditPost;
     /** The comment addComment resolves to: the post's end note, once added. */
     readonly comment: ManagedComment;
     readonly addComment: Mock<ManagedPost["addComment"]>;
@@ -11,22 +15,19 @@ export interface FakePost {
     readonly distinguish: Mock<ManagedPost["distinguish"]>;
     readonly edit: Mock<ManagedPost["edit"]>;
     readonly lock: Mock<ManagedPost["lock"]>;
-    readonly sticky: Mock<ManagedPost["sticky"]>;
-    readonly unsticky: Mock<ManagedPost["unsticky"]>;
+    readonly highlight: Mock<HighlightablePost["highlight"]>;
+    readonly unhighlight: Mock<HighlightablePost["unhighlight"]>;
 }
 
-export type FakePostFields = Readonly<
-    Pick<ManagedPost, "body" | "createdAt" | "id" | "numberOfComments" | "stickied">
-> &
-    Readonly<Partial<Pick<ManagedPost, "distinguishedBy" | "locked" | "permalink" | "title">>>;
+export type FakePostFields = Readonly<Pick<ManagedPost, "body" | "createdAt" | "id" | "numberOfComments">> &
+    Readonly<Partial<Pick<FakeRedditPost, "distinguishedBy" | "locked" | "permalink" | "subredditName" | "title">>>;
 
 interface ModerationState {
     distinguishedBy: string | undefined;
     locked: boolean;
-    stickied: boolean;
 }
 
-type ModerationActions = Pick<FakePost, "distinguish" | "lock" | "sticky" | "unsticky">;
+type ModerationActions = Pick<FakePost, "distinguish" | "lock">;
 
 /** A post's moderation state, and mocks of the actions that change it when they succeed, as on Reddit. */
 function createModeration(
@@ -35,7 +36,6 @@ function createModeration(
     const state: ModerationState = {
         distinguishedBy: fields.distinguishedBy,
         locked: fields.locked ?? false,
-        stickied: fields.stickied,
     };
     const changing =
         (change: () => void): (() => Promise<void>) =>
@@ -54,24 +54,15 @@ function createModeration(
                 state.locked = true;
             }),
         ),
-        sticky: vi.fn<ManagedPost["sticky"]>().mockImplementation(
-            changing((): void => {
-                state.stickied = true;
-            }),
-        ),
-        unsticky: vi.fn<ManagedPost["unsticky"]>().mockImplementation(
-            changing((): void => {
-                state.stickied = false;
-            }),
-        ),
     };
     return { actions, read: (): Readonly<ModerationState> => state };
 }
 
 /**
- * A ManagedPost whose actions are typed mocks. Distinguishing, locking and (un)stickying it change what it then reads
- * as, as on Reddit; a comment added to it resolves to `comment`, whose distinguish is its own mock. Its title and
- * permalink default to ones derived from its ID.
+ * A Reddit post whose actions are typed mocks. Distinguishing and locking it change what it then reads as, as on
+ * Reddit; a comment added to it resolves to `comment`, whose distinguish is its own mock. Its highlight calls are mocks
+ * that change nothing: rotation pins through the Highlights port, faked on its own. Its title and permalink default to
+ * ones derived from its ID, and its subreddit to testsub.
  */
 export function createFakePost(fields: FakePostFields): FakePost {
     const moderation = createModeration(fields);
@@ -79,6 +70,8 @@ export function createFakePost(fields: FakePostFields): FakePost {
     const comment: ManagedComment = { id: `t1_${fields.id.replace("t3_", "")}`, distinguish: commentDistinguish };
     const addComment = vi.fn<ManagedPost["addComment"]>().mockResolvedValue(comment);
     const edit = vi.fn<ManagedPost["edit"]>().mockResolvedValue(undefined);
+    const highlight = vi.fn<HighlightablePost["highlight"]>().mockResolvedValue(undefined);
+    const unhighlight = vi.fn<HighlightablePost["unhighlight"]>().mockResolvedValue(undefined);
 
     return {
         post: {
@@ -88,23 +81,25 @@ export function createFakePost(fields: FakePostFields): FakePost {
             numberOfComments: fields.numberOfComments,
             permalink: fields.permalink ?? `/r/testsub/comments/${fields.id.replace("t3_", "")}/`,
             title: fields.title ?? `Post ${fields.id}`,
+            subredditName: fields.subredditName ?? "testsub",
             get distinguishedBy(): string | undefined {
                 return moderation.read().distinguishedBy;
             },
             get locked(): boolean {
                 return moderation.read().locked;
             },
-            get stickied(): boolean {
-                return moderation.read().stickied;
-            },
             addComment,
             edit,
+            highlight,
+            unhighlight,
             ...moderation.actions,
         },
         comment,
         addComment,
         commentDistinguish,
         edit,
+        highlight,
+        unhighlight,
         ...moderation.actions,
     };
 }

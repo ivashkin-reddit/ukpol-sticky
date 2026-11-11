@@ -3,12 +3,13 @@ import { getSchedule } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import { findNextRefresh, isDueAtOnce, isRetryToCome } from "./domain/refreshRules.js";
 import type { NextRefresh, ThreadRefreshState } from "./domain/refreshRules.js";
-import { getRotationTime, refreshOrder } from "./domain/rotationRules.js";
+import { getRotationTime } from "./domain/rotationRules.js";
 import { forgetRemovedThreadConfigs, forgetThreadConfigs } from "./forgetThreadConfigs.js";
 import type { ForgetPorts } from "./forgetThreadConfigs.js";
 import type { PendingRefresh, RefreshJobs, RefreshStatus, RefreshStatusStore, RotationPorts } from "./ports.js";
 import { alertingOnRefreshFailure } from "./refreshFailures.js";
 import type { RefreshFailureAlertPorts } from "./refreshFailures.js";
+import { inRefreshOrder } from "./threadConfigOrder.js";
 
 // A refresh requested now, as after a config page save, runs a second later.
 const REQUESTED_REFRESH_DELAY_SECONDS = 1;
@@ -19,7 +20,7 @@ export type RequestPorts = RefreshFailureAlertPorts & SchedulePorts;
 
 /** The enabled thread config named `configName`, if one is in force. */
 export function findConfigInForce(configs: readonly ThreadConfig[], configName: string): ThreadConfig | undefined {
-    return refreshOrder(configs).find((config): boolean => config.name === configName);
+    return inRefreshOrder(configs).find((config): boolean => config.name === configName);
 }
 
 /** Thread configs by name, for a log line: "thread config a" or "thread configs a, b". */
@@ -135,7 +136,7 @@ async function requestSoon(
  */
 export async function requestEveryThreadRefresh(ports: RequestPorts, why: string): Promise<void> {
     await alertingOnRefreshFailure(ports, async (): Promise<void> => {
-        const configNames = refreshOrder(await ports.threadConfigs()).map((config): string => config.name);
+        const configNames = inRefreshOrder(await ports.threadConfigs()).map((config): string => config.name);
         const pending = await ports.refreshJobs.pending();
         await Promise.all(
             configNames.map(async (configName: string): Promise<void> => {
@@ -153,7 +154,7 @@ export async function requestEveryThreadRefresh(ports: RequestPorts, why: string
 
 /** Schedules every thread config's next refresh, then cancels refreshes from before the upgrade, as at the upgrade. */
 export async function scheduleEveryThreadRefresh(ports: SchedulePorts): Promise<void> {
-    const configs = refreshOrder(await ports.threadConfigs());
+    const configs = inRefreshOrder(await ports.threadConfigs());
     await Promise.all(
         configs.map(async (config): Promise<void> => {
             await scheduleNextRefresh(config.name, ports);

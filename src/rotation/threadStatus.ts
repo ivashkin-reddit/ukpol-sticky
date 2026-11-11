@@ -1,9 +1,9 @@
 import { getSchedule } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
-import { refreshOrder } from "./domain/rotationRules.js";
 import { findAttentionReasons, putFirst } from "./domain/statusRules.js";
 import type { AttentionReason } from "./domain/statusRules.js";
 import type { Handover, PendingRefresh, RefreshStatus, RotationPorts } from "./ports.js";
+import { inRefreshOrder } from "./threadConfigOrder.js";
 
 export type StatusPorts = Pick<
     RotationPorts,
@@ -16,7 +16,6 @@ export type LivePostStatus =
           kind: "readable";
           id: string;
           title: string;
-          stickied: boolean;
           createdAt: Date;
           comments: number;
           /** The comment cap stored for the post, the one rotation enforces; undefined when none is stored. */
@@ -108,7 +107,6 @@ async function readLivePost(
             kind: "readable",
             id: post.id,
             title: post.title,
-            stickied: post.stickied,
             createdAt: post.createdAt,
             comments: post.numberOfComments,
             commentCap,
@@ -162,7 +160,7 @@ async function readThreadIsolated(
  * status describe the same ones. It only reads.
  */
 export async function getThreadStatuses(configs: readonly ThreadConfig[], ports: StatusPorts): Promise<ThreadStatuses> {
-    const inForce = refreshOrder(configs);
+    const inForce = inRefreshOrder(configs);
     const snapshot = await takeSnapshot(
         inForce.map((config: ThreadConfig): string => config.name),
         ports,

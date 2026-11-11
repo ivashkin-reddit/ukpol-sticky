@@ -144,12 +144,12 @@ describe("redisLivePosts() handovers", (): void => {
         const { redis } = createFakeDevvitContext();
         redis.hGetAll.mockResolvedValue({
             alpha: JSON.stringify({ newPostId: "t3_new" }),
-            beta: JSON.stringify({ newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b" }),
+            beta: JSON.stringify({ newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b", slot: 2 }),
         });
 
         await expect(redisLivePosts(redis).handovers()).resolves.toStrictEqual({
             alpha: { newPostId: "t3_new" },
-            beta: { newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b" },
+            beta: { newPostId: "t3_b2", oldPostId: "t3_b1", endNoteId: "t1_b", slot: 2 },
         });
         expect(redis.hGetAll).toHaveBeenCalledExactlyOnceWith("PendingHandovers");
     });
@@ -171,6 +171,19 @@ describe("redisLivePosts() handovers", (): void => {
 
         await expect(redisLivePosts(redis).handovers()).rejects.toThrow(
             new TypeError('The stored handover of thread config alpha is not a handover: {"newPostId":5}'),
+        );
+    });
+
+    it("rejects a stored handover whose slot is not a number", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        const { redis } = createFakeDevvitContext();
+        redis.hGetAll.mockResolvedValue({ alpha: JSON.stringify({ newPostId: "t3_new", slot: "1" }) });
+
+        await expect(redisLivePosts(redis).handovers()).rejects.toThrow(
+            new TypeError(
+                'The stored handover of thread config alpha is not a handover: {"newPostId":"t3_new","slot":"1"}',
+            ),
         );
     });
 });

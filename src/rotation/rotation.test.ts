@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { unlabelled } from "../../tests/support/fakeHighlights.js";
 import { findingPostsById } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import {
@@ -17,7 +18,7 @@ const TEST_OPTIONS = { timeout: 1000 };
 
 describe(refreshThreadConfig, (): void => {
     it(
-        "publishes a live post for a thread config without one, stickied as it asks",
+        "publishes a live post for a thread config without one, pinned as it asks",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(2);
@@ -34,7 +35,7 @@ describe(refreshThreadConfig, (): void => {
                 title: "Sticky thread",
                 body: "Sticky body",
             });
-            expect(stickyPost.sticky).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.highlights.current()).toStrictEqual([{ postId: "t3_sticky", label: "megathread" }]);
         },
     );
 
@@ -42,15 +43,15 @@ describe(refreshThreadConfig, (): void => {
         expect.assertions(3);
 
         silenceConsole("log");
-        const fakes = createFakeRotationPorts([STICKY_CONFIG]);
+        const fakes = createFakeRotationPorts([STICKY_CONFIG], {}, unlabelled("t3_full"));
         fakes.livePosts.get.mockResolvedValue("t3_full");
-        const full = fullPost("t3_full", 100);
-        fakes.posts.get.mockResolvedValue(full.post);
-        fakes.posts.publish.mockResolvedValue(newPost("t3_next").post);
+        const next = newPost("t3_next").post;
+        fakes.posts.get.mockImplementation(findingPostsById([fullPost("t3_full", 100).post, next]));
+        fakes.posts.publish.mockResolvedValue(next);
 
         await refreshThreadConfig("sticky-thread", fakes.ports);
 
-        expect(full.unsticky).toHaveBeenCalledExactlyOnceWith();
+        expect(fakes.highlights.current()).toStrictEqual([{ postId: "t3_next", label: "megathread" }]);
         expect(fakes.posts.publish).toHaveBeenCalledExactlyOnceWith({ title: "Sticky thread", body: "Sticky body" });
         expect(fakes.livePosts.set).toHaveBeenCalledExactlyOnceWith("sticky-thread", "t3_next");
     });

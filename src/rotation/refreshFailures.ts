@@ -82,7 +82,7 @@ export async function alertingOnThreadFailure(
             latch: ports.threadFailureAlert(configName),
             subject: `Sticky Manager could not refresh thread config ${configName}`,
             explanation: [
-                `A refresh of thread config ${configName} failed. If it interrupted a rotation, the thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.`,
+                `A refresh of thread config ${configName} failed. If it interrupted a rotation, the thread is part-way through it: its old post may be unpinned and not yet replaced, or its new post not yet pinned and the old one not yet locked.`,
                 "Sticky Manager tries again within 15 minutes and finishes any interrupted rotation. It sends no further alert about this thread config until it refreshes successfully.",
             ],
         },

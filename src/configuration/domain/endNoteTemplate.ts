@@ -12,8 +12,13 @@ export interface LinkedPost {
     readonly permalink: string;
 }
 
+/** A Markdown link to `post`, titled with its title. */
+export function markdownLink(post: LinkedPost): string {
+    const linkText = post.title.replace(LINK_TEXT_SPECIAL, (character: string): string => `\\${character}`);
+    return `[${linkText}](${post.permalink})`;
+}
+
 /** `endNote` with every `{{new post}}` replaced by a link to `newPost`. */
 export function renderEndNote(endNote: string, newPost: LinkedPost): string {
-    const linkText = newPost.title.replace(LINK_TEXT_SPECIAL, (character: string): string => `\\${character}`);
-    return endNote.split(NEW_POST_TOKEN).join(`[${linkText}](${newPost.permalink})`);
+    return endNote.split(NEW_POST_TOKEN).join(markdownLink(newPost));
 }

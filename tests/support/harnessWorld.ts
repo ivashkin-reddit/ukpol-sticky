@@ -1,5 +1,5 @@
 import { reddit, redis, scheduler } from "@devvit/web/server";
-import type { T1, T3 } from "@devvit/web/shared";
+import type { T1 } from "@devvit/web/shared";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { DevvitContext } from "../../src/composition.js";
@@ -8,6 +8,7 @@ import type { ManagedComment, ManagedPost } from "../../src/rotation/index.js";
 import { createApp } from "../../src/server/app.js";
 import { TEST_APP_SLUG, TEST_SUBREDDIT_ID, TEST_SUBREDDIT_NAME } from "./devvitHarness.js";
 import type { CreateModInboxConversation } from "./fakeDevvitContext.js";
+import { harnessPost, harnessSubreddit } from "./harnessHighlights.js";
 
 type DevvitReddit = DevvitContext["reddit"];
 
@@ -121,7 +122,8 @@ export function createHarnessWorld(
         reddit: {
             modMail: { createModInboxConversation },
             getCommentById: async (id: T1): Promise<ManagedComment> => await reddit.getCommentById(id),
-            getPostById: async (id: T3): Promise<ManagedPost> => await reddit.getPostById(id),
+            getPostById: harnessPost,
+            getCurrentSubreddit: harnessSubreddit,
             submitPost,
             ...createWiki(wikiContent),
             ...createModerators(caller),

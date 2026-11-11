@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { freezeTime } from "../../tests/support/fakeClock.js";
+import { unlabelled } from "../../tests/support/fakeHighlights.js";
 import { createFakePost, findingPostsById } from "../../tests/support/fakePosts.js";
 import type { FakePost } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { ThreadConfig } from "../configuration/index.js";
+import type { Highlight } from "../highlights/index.js";
 import { rotateLivePost } from "./threadRefresh.js";
 
 const TEST_OPTIONS = { timeout: 1000 };
@@ -26,23 +28,25 @@ interface Rotation {
     readonly replacement: FakePost;
 }
 
-async function rotate(config: ThreadConfig): Promise<Rotation> {
+/** Rotates `config`'s live post t3_old, pinned in slot 1 unless `highlights` says otherwise. */
+async function rotate(
+    config: ThreadConfig,
+    highlights: readonly Highlight[] = unlabelled("t3_old"),
+): Promise<Rotation> {
     freezeTime("2026-04-21T10:00:00Z");
     vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
-    const fakes = createFakeRotationPorts();
+    const fakes = createFakeRotationPorts([], {}, highlights);
     const oldPost = createFakePost({
         body: "Old body",
         createdAt: new Date("2026-04-20T10:00:00Z"),
         id: "t3_old",
         numberOfComments: 5,
-        stickied: true,
     });
     const replacement = createFakePost({
         body: undefined,
         createdAt: new Date("2026-04-21T10:00:00Z"),
         id: "t3_replacement",
         numberOfComments: 0,
-        stickied: false,
         title: "Daily thread 2026-04-21",
         permalink: "/r/testsub/comments/replacement/daily_thread_20260421/",
     });
@@ -55,14 +59,14 @@ async function rotate(config: ThreadConfig): Promise<Rotation> {
 
 describe(rotateLivePost, (): void => {
     it(
-        "retires the old post: unstickies it, adds the end note as a distinguished sticky comment and locks it",
+        "retires the old post: unpins it, adds the end note as a distinguished sticky comment and locks it",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(4);
 
-            const { oldPost } = await rotate(ROTATING_CONFIG);
+            const { fakes, oldPost } = await rotate(ROTATING_CONFIG);
 
-            expect(oldPost.unsticky).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.highlights.unpin).toHaveBeenCalledExactlyOnceWith("t3_old");
             expect(oldPost.addComment).toHaveBeenCalledExactlyOnceWith({ text: "Thread closed" });
             expect(oldPost.commentDistinguish).toHaveBeenCalledExactlyOnceWith(true);
             expect(oldPost.lock).toHaveBeenCalledExactlyOnceWith();
@@ -80,7 +84,7 @@ describe(rotateLivePost, (): void => {
     });
 
     it(
-        "publishes the replacement with the dated title, then distinguishes and stickies it",
+        "publishes the replacement with the dated title, then distinguishes it and pins it in the old post's slot",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(3);
@@ -92,7 +96,7 @@ describe(rotateLivePost, (): void => {
                 body: "Replacement body",
             });
             expect(replacement.distinguish).toHaveBeenCalledExactlyOnceWith();
-            expect(replacement.sticky).toHaveBeenCalledExactlyOnceWith();
+            expect(fakes.highlights.current()).toStrictEqual([{ postId: "t3_replacement", label: "megathread" }]);
         },
     );
 
@@ -106,12 +110,12 @@ describe(rotateLivePost, (): void => {
     });
 
     it(
-        "leaves the old post open and the replacement unstickied when those keys were left empty",
+        "leaves the old post open and the replacement unpinned when those keys were left empty",
         TEST_OPTIONS,
         async (): Promise<void> => {
             expect.assertions(3);
 
-            const { oldPost, replacement } = await rotate({
+            const { fakes, oldPost } = await rotate({
                 ...ROTATING_CONFIG,
                 endNote: null,
                 lockOnRefresh: null,
@@ -120,7 +124,7 @@ describe(rotateLivePost, (): void => {
 
             expect(oldPost.addComment).not.toHaveBeenCalled();
             expect(oldPost.lock).not.toHaveBeenCalled();
-            expect(replacement.sticky).not.toHaveBeenCalled();
+            expect(fakes.highlights.current()).toStrictEqual([]);
         },
     );
 
@@ -140,7 +144,7 @@ describe(rotateLivePost, (): void => {
 
             const { fakes, oldPost } = await rotate(ROTATING_CONFIG);
 
-            expect(oldPost.unsticky).toHaveBeenCalledBefore(fakes.posts.publish);
+            expect(fakes.highlights.unpin).toHaveBeenCalledBefore(fakes.posts.publish);
             expect(fakes.livePosts.set).toHaveBeenCalledBefore(oldPost.addComment);
             expect(oldPost.addComment).toHaveBeenCalledBefore(oldPost.lock);
             expect(fakes.livePosts.forgetCommentCap).toHaveBeenCalledExactlyOnceWith("t3_old");
@@ -158,6 +162,7 @@ describe(rotateLivePost, (): void => {
             expect(fakes.livePosts.saveHandover).toHaveBeenNthCalledWith(1, "daily-thread", {
                 newPostId: "t3_replacement",
                 oldPostId: "t3_old",
+                slot: 1,
             });
             expect(fakes.posts.publish).toHaveBeenCalledBefore(fakes.livePosts.saveHandover);
             expect(fakes.livePosts.saveHandover).toHaveBeenCalledBefore(fakes.livePosts.set);
@@ -180,7 +185,6 @@ describe(rotateLivePost, (): void => {
                 createdAt: new Date("2026-04-21T10:00:00Z"),
                 id: "t3_first",
                 numberOfComments: 0,
-                stickied: false,
             });
             fakes.posts.publish.mockResolvedValue(first.post);
             fakes.posts.get.mockImplementation(findingPostsById([first.post]));
@@ -189,6 +193,7 @@ describe(rotateLivePost, (): void => {
 
             expect(fakes.livePosts.saveHandover).toHaveBeenCalledExactlyOnceWith("daily-thread", {
                 newPostId: "t3_first",
+                slot: 6,
             });
             expect(fakes.livePosts.forgetHandover).toHaveBeenCalledExactlyOnceWith("daily-thread");
         },

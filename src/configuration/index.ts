@@ -10,7 +10,7 @@ export type { ConfigPageState, ConfigPageStatus, ConfigStatusPorts, StoredThread
 export { describeProblemForStatus } from "./configProblemWording.js";
 export { checkThreadConfigSchema, getPin, getSchedule, MAX_SLOT } from "./domain/threadConfig.js";
 export type { Pin, Schedule, ThreadConfig } from "./domain/threadConfig.js";
-export { renderEndNote } from "./domain/endNoteTemplate.js";
+export { markdownLink, renderEndNote } from "./domain/endNoteTemplate.js";
 export { renderTitle } from "./domain/titleTemplate.js";
 export { UnreadableConfigError } from "./ports.js";
 export type { ConfigPage, ConfigPageRevision, ConfigReadPorts, ConfigStore, ConfigurationPorts } from "./ports.js";

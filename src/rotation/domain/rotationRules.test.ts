@@ -179,19 +179,18 @@ describe(findRotationReason, (): void => {
 });
 
 describe(refreshOrder, (): void => {
-    it("keeps enabled thread configs only, sticky first, otherwise in page order", TEST_OPTIONS, (): void => {
+    it("keeps enabled thread configs only, pinned first, otherwise in page order", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
         const first = { ...CAP_ONLY_CONFIG, name: "first" };
-        const disabled = { ...CAP_ONLY_CONFIG, name: "disabled", enabled: false, sticky: true };
-        const sticky = { ...CAP_ONLY_CONFIG, name: "sticky", sticky: true };
-        const last = { ...CAP_ONLY_CONFIG, name: "last", sticky: null };
+        const disabled = { ...CAP_ONLY_CONFIG, name: "disabled", enabled: false };
+        const pinned = { ...CAP_ONLY_CONFIG, name: "pinned" };
+        const last = { ...CAP_ONLY_CONFIG, name: "last" };
+        const isPinned = (config: ThreadConfig): boolean => config.name === "pinned" || config.name === "disabled";
 
-        expect(refreshOrder([first, disabled, sticky, last]).map((config): string => config.name)).toStrictEqual([
-            "sticky",
-            "first",
-            "last",
-        ]);
+        expect(
+            refreshOrder([first, disabled, pinned, last], isPinned).map((config): string => config.name),
+        ).toStrictEqual(["pinned", "first", "last"]);
     });
 });
 

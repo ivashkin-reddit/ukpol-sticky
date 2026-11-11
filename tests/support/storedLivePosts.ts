@@ -1,4 +1,5 @@
 import type { ThreadConfig } from "../../src/configuration/index.js";
+import type { Highlight } from "../../src/highlights/index.js";
 import type { Handover, LivePosts } from "../../src/rotation/index.js";
 import { createFakeRotationPorts } from "./fakeRotationPorts.js";
 import type { FakeRotationPorts } from "./fakeRotationPorts.js";
@@ -48,13 +49,15 @@ function createInMemoryLivePosts(
 }
 
 /**
- * Rotation ports over `configs` whose live posts and handovers are kept in memory, starting from `livePostIds`.
- * Their methods are still mocks, so a test can fail one step; comment caps stay plain mocks.
+ * Rotation ports over `configs` whose live posts and handovers are kept in memory, starting from `livePostIds`, with
+ * `highlights` as the subreddit's highlights. Their methods are still mocks, so a test can fail one step; comment caps
+ * stay plain mocks.
  */
 export function createStoredRotationPorts(
     configs: readonly ThreadConfig[],
     livePostIds: Readonly<Record<string, string>>,
+    highlights: readonly Highlight[] = [],
 ): Readonly<{ fakes: FakeRotationPorts; store: LivePostStore }> {
     const { store, livePosts } = createInMemoryLivePosts(livePostIds);
-    return { fakes: createFakeRotationPorts(configs, livePosts), store };
+    return { fakes: createFakeRotationPorts(configs, livePosts, highlights), store };
 }

@@ -1,5 +1,5 @@
-import { refreshOrder } from "./domain/rotationRules.js";
 import type { RotationPorts } from "./ports.js";
+import { inRefreshOrder } from "./threadConfigOrder.js";
 
 export type MigrationPorts = Pick<RotationPorts, "appliedThreadConfigs" | "retiredRefreshRecords" | "threadConfigs">;
 
@@ -28,7 +28,7 @@ export async function migrateRefreshRecords(ports: MigrationPorts): Promise<void
     const record = await ports.retiredRefreshRecords.readAppliedThreadConfigs();
     if (record !== undefined) {
         const appliedJson = parseAppliedJson(record);
-        const configs = refreshOrder(await ports.threadConfigs());
+        const configs = inRefreshOrder(await ports.threadConfigs());
         const migrated = configs.filter((config): boolean => appliedJson.has(JSON.stringify(config)));
         await Promise.all(
             migrated.map(async (config): Promise<void> => {

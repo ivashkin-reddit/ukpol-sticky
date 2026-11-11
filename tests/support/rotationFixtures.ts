@@ -54,7 +54,7 @@ export function threadFailureAlert(
     return {
         subject: `Sticky Manager could not refresh thread config ${configName}`,
         bodyMarkdown: [
-            `A refresh of thread config ${configName} failed. If it interrupted a rotation, the thread is part-way through it: its old post may be unstickied and not yet replaced, or its new post not yet stickied and the old one not yet locked.`,
+            `A refresh of thread config ${configName} failed. If it interrupted a rotation, the thread is part-way through it: its old post may be unpinned and not yet replaced, or its new post not yet pinned and the old one not yet locked.`,
             "Sticky Manager tries again within 15 minutes and finishes any interrupted rotation. It sends no further alert about this thread config until it refreshes successfully.",
             `Details: ${details}`,
         ].join("\n\n"),
@@ -80,7 +80,6 @@ export function dailyPost(id: string): FakePost {
         createdAt: new Date("2026-04-21T05:00:00Z"),
         id,
         numberOfComments: 0,
-        stickied: false,
     });
 }
 
@@ -91,7 +90,6 @@ export function newPost(id: string): FakePost {
         createdAt: new Date("2026-04-21T10:00:00Z"),
         id,
         numberOfComments: 0,
-        stickied: false,
     });
 }
 
@@ -102,7 +100,6 @@ export function fullPost(id: string, numberOfComments: number): FakePost {
         createdAt: new Date("2026-04-21T09:00:00Z"),
         id,
         numberOfComments,
-        stickied: true,
     });
 }
 

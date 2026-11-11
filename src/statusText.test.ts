@@ -27,7 +27,6 @@ const HEALTHY: ReadableThreadStatus = {
         kind: "readable",
         id: "t3_daily",
         title: "Daily thread",
-        stickied: true,
         createdAt: new Date("2026-04-21T05:00:00Z"),
         comments: 12,
         commentCap: 100,
@@ -161,7 +160,7 @@ describe(describeLivePost, (): void => {
         expect.assertions(3);
 
         expect(describeLivePost(HEALTHY.livePost, NOW)).toBe(
-            "Daily thread (t3_daily), stickied, posted 2026-04-21 05:00 UTC (5 hours ago)",
+            "Daily thread (t3_daily), posted 2026-04-21 05:00 UTC (5 hours ago)",
         );
         expect(describeLivePost({ kind: "none" }, NOW)).toBe("None: a refresh publishes one.");
         expect(describeLivePost({ kind: "unreadable", postId: "t3_gone" }, NOW)).toBe(
@@ -178,7 +177,6 @@ describe(describeComments, (): void => {
             kind: "readable",
             id: "t3_daily",
             title: "Daily thread",
-            stickied: true,
             createdAt: new Date("2026-04-21T05:00:00Z"),
             comments: 412,
             commentCap: 1000,

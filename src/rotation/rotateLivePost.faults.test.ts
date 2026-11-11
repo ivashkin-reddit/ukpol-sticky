@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { unlabelled } from "../../tests/support/fakeHighlights.js";
 import { createFakePost } from "../../tests/support/fakePosts.js";
 import type { FakePost } from "../../tests/support/fakePosts.js";
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
@@ -10,8 +11,8 @@ import type { ManagedComment, ManagedPost } from "./ports.js";
 import { refreshThreadConfig } from "./rotation.js";
 
 // A rotation is a run of Reddit and Redis calls that cannot be made atomic. These tests fail each step once, retry
-// the refresh, and check that the retry finishes the rotation: the newest post is live, distinguished and stickied, and
-// the old post is unstickied, locked and given its end note.
+// the refresh, and check that the retry finishes the rotation: the newest post is live, distinguished and pinned in the
+// old post's slot, and the old post is unpinned, locked and given its end note.
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -34,19 +35,25 @@ interface Rotation {
     /** Posts published successfully, in order. */
     readonly published: FakePost[];
     readonly store: LivePostStore;
-    /** Makes the first post published fail `action` once. */
-    readonly failOnFirstPublished: (action: "distinguish" | "sticky") => void;
+    /** Makes the first post published fail to be distinguished once. */
+    readonly failFirstDistinguish: () => void;
 }
 
-/** A thread config whose live post t3_old is at its comment cap, over stores that keep what is written to them. */
+/**
+ * A thread config whose live post t3_old is at its comment cap and pinned in slot 2, below t3_other, over stores that
+ * keep what is written to them. Its replacement is pinned first by Reddit, then moved into slot 2 by a reorder.
+ */
 function threadDueForRotation(): Rotation {
-    const { fakes, store } = createStoredRotationPorts([CONFIG], { [CONFIG.name]: "t3_old" });
+    const { fakes, store } = createStoredRotationPorts(
+        [CONFIG],
+        { [CONFIG.name]: "t3_old" },
+        unlabelled("t3_other", "t3_old"),
+    );
     const oldPost = createFakePost({
         body: "Body",
         createdAt: new Date("2026-04-21T09:00:00Z"),
         id: "t3_old",
         numberOfComments: 100,
-        stickied: true,
     });
     const published: FakePost[] = [];
     const postsById = new Map<string, FakePost>([[oldPost.post.id, oldPost]]);
@@ -66,21 +73,20 @@ function threadDueForRotation(): Rotation {
             createdAt: new Date(),
             id: `t3_new${String(published.length + 1)}`,
             numberOfComments: 0,
-            stickied: false,
         });
         published.push(post);
         postsById.set(post.post.id, post);
         return await Promise.resolve(post.post);
     };
     fakes.posts.publish.mockImplementation(publish);
-    const failOnFirstPublished = (action: "distinguish" | "sticky"): void => {
+    const failFirstDistinguish = (): void => {
         fakes.posts.publish.mockImplementationOnce(async (): Promise<ManagedPost> => {
             const post = await publish();
-            published[0]?.[action].mockRejectedValueOnce(STEP_FAILURE);
+            published[0]?.distinguish.mockRejectedValueOnce(STEP_FAILURE);
             return post;
         });
     };
-    return { fakes, oldPost, published, store, failOnFirstPublished };
+    return { fakes, oldPost, published, store, failFirstDistinguish };
 }
 
 type FailingStep =
@@ -88,12 +94,13 @@ type FailingStep =
     | "endNote"
     | "endNoteDistinguish"
     | "lock"
+    | "pin"
     | "publish"
     | "recordEndNote"
     | "recordHandover"
     | "recordLivePost"
-    | "sticky"
-    | "unsticky";
+    | "reorder"
+    | "unpin";
 
 interface FaultCase {
     readonly failing: FailingStep;
@@ -102,13 +109,15 @@ interface FaultCase {
 }
 
 const FAULT_CASES: readonly FaultCase[] = [
-    { failing: "unsticky", publishedPosts: 1, endNotes: 1 },
+    { failing: "unpin", publishedPosts: 1, endNotes: 1 },
     { failing: "publish", publishedPosts: 1, endNotes: 1 },
     // Reddit has the post, but nothing recorded it: the retry publishes another. The first is left as it is.
     { failing: "recordHandover", publishedPosts: 2, endNotes: 1 },
     { failing: "recordLivePost", publishedPosts: 1, endNotes: 1 },
     { failing: "distinguish", publishedPosts: 1, endNotes: 1 },
-    { failing: "sticky", publishedPosts: 1, endNotes: 1 },
+    { failing: "pin", publishedPosts: 1, endNotes: 1 },
+    // Reddit pinned the new post first, but did not move it: the retry only reorders.
+    { failing: "reorder", publishedPosts: 1, endNotes: 1 },
     { failing: "endNote", publishedPosts: 1, endNotes: 1 },
     // Reddit has the end note, but its ID was not recorded: the retry adds another.
     { failing: "recordEndNote", publishedPosts: 1, endNotes: 2 },
@@ -130,11 +139,11 @@ describe("a rotation retried after one of its steps fails", (): void => {
 
             vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
             silenceConsole("error");
-            const { fakes, oldPost, published, store, failOnFirstPublished } = threadDueForRotation();
+            const { fakes, oldPost, published, store, failFirstDistinguish } = threadDueForRotation();
             const saveHandover = fakes.livePosts.saveHandover.getMockImplementation();
             switch (faultCase.failing) {
-                case "unsticky":
-                    oldPost.unsticky.mockRejectedValueOnce(STEP_FAILURE);
+                case "unpin":
+                    fakes.highlights.unpin.mockRejectedValueOnce(STEP_FAILURE);
                     break;
                 case "publish":
                     fakes.posts.publish.mockRejectedValueOnce(STEP_FAILURE);
@@ -146,8 +155,13 @@ describe("a rotation retried after one of its steps fails", (): void => {
                     fakes.livePosts.set.mockRejectedValueOnce(STEP_FAILURE);
                     break;
                 case "distinguish":
-                case "sticky":
-                    failOnFirstPublished(faultCase.failing);
+                    failFirstDistinguish();
+                    break;
+                case "pin":
+                    fakes.highlights.pin.mockRejectedValueOnce(STEP_FAILURE);
+                    break;
+                case "reorder":
+                    fakes.highlights.reorder.mockRejectedValueOnce(STEP_FAILURE);
                     break;
                 case "endNote":
                     oldPost.addComment.mockRejectedValueOnce(STEP_FAILURE);
@@ -173,23 +187,27 @@ describe("a rotation retried after one of its steps fails", (): void => {
 
             await refreshThreadConfig(CONFIG.name, fakes.ports);
 
-            const livePost = published[published.length - 1]?.post;
+            const livePost = published.at(-1)?.post;
 
             expect([published.length, fulfilled(oldPost.addComment.mock.settledResults)]).toStrictEqual([
                 faultCase.publishedPosts,
                 faultCase.endNotes,
             ]);
-            // The newest post is the live post, distinguished and stickied.
-            expect([store.livePostIds.get(CONFIG.name), livePost?.distinguishedBy, livePost?.stickied]).toStrictEqual([
+            // The newest post is the live post, distinguished, and holds the old post's slot below t3_other; the old
+            // post is no longer pinned.
+            expect([
+                store.livePostIds.get(CONFIG.name),
+                livePost?.distinguishedBy,
+                fakes.highlights.current(),
+            ]).toStrictEqual([
                 livePost?.id,
                 "moderator",
+                [...unlabelled("t3_other"), { postId: livePost?.id, label: "megathread" }],
+            ]);
+            expect([oldPost.post.locked, fulfilled(oldPost.commentDistinguish.mock.settledResults) > 0]).toStrictEqual([
+                true,
                 true,
             ]);
-            expect([
-                oldPost.post.stickied,
-                oldPost.post.locked,
-                fulfilled(oldPost.commentDistinguish.mock.settledResults) > 0,
-            ]).toStrictEqual([false, true, true]);
             expect([store.handovers.size, fakes.livePosts.forgetCommentCap.mock.lastCall]).toStrictEqual([
                 0,
                 ["t3_old"],
@@ -207,12 +225,12 @@ describe("a rotation whose handover keeps failing", (): void => {
 
             vi.spyOn(console, "log").mockImplementation((): undefined => undefined);
             silenceConsole("error");
-            const { fakes, published, failOnFirstPublished } = threadDueForRotation();
-            failOnFirstPublished("sticky");
+            const { fakes } = threadDueForRotation();
+            fakes.highlights.pin.mockRejectedValueOnce(STEP_FAILURE);
 
             await expect(refreshThreadConfig(CONFIG.name, fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
 
-            published[0]?.sticky.mockRejectedValueOnce(STEP_FAILURE);
+            fakes.highlights.pin.mockRejectedValueOnce(STEP_FAILURE);
 
             await expect(refreshThreadConfig(CONFIG.name, fakes.ports)).rejects.toThrow(STEP_FAILURE.message);
 

@@ -2,12 +2,12 @@ import { getSchedule } from "../configuration/index.js";
 import type { ThreadConfig } from "../configuration/index.js";
 import { findCheckFinding } from "./domain/refreshRules.js";
 import type { CheckFinding } from "./domain/refreshRules.js";
-import { refreshOrder } from "./domain/rotationRules.js";
 import { forgetRemovedThreadConfigs } from "./forgetThreadConfigs.js";
 import type { Handover, PendingRefresh } from "./ports.js";
 import { alertingOnRefreshFailure, describeFailure } from "./refreshFailures.js";
 import { describeThreadConfigs, requestThreadRefresh } from "./refreshSchedule.js";
 import type { RequestPorts } from "./refreshSchedule.js";
+import { inRefreshOrder } from "./threadConfigOrder.js";
 
 export type CheckPorts = RequestPorts;
 
@@ -133,7 +133,7 @@ function describePendingRefreshes(pending: readonly PendingRefresh[]): string {
 export async function checkRefreshes(ports: CheckPorts): Promise<void> {
     await alertingOnRefreshFailure(ports, async (): Promise<void> => {
         const snapshot = await takeSnapshot(ports);
-        const configs = refreshOrder(await ports.threadConfigs());
+        const configs = inRefreshOrder(await ports.threadConfigs());
         const results = await Promise.all(
             configs.map(
                 async (config): Promise<ThreadCheckFailure | undefined> => await checkIsolated(config, snapshot, ports),

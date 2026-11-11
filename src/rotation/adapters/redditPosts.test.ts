@@ -11,7 +11,6 @@ const POST = createFakePost({
     createdAt: new Date("2026-04-21T10:00:00Z"),
     id: "t3_alpha",
     numberOfComments: 0,
-    stickied: false,
 }).post;
 
 describe(redditPosts, (): void => {
@@ -65,7 +64,6 @@ describe(redditPosts, (): void => {
             createdAt: new Date("2026-04-21T10:00:00Z"),
             id: "t3_alpha",
             numberOfComments: 1,
-            stickied: false,
         });
         fakes.reddit.getCommentById.mockResolvedValue(comment);
 

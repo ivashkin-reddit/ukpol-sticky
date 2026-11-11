@@ -75,12 +75,18 @@ export function isClearlyBelowCommentCap(reportedComments: number, commentCap: n
     return reportedComments > 0 && reportedComments + 1 < commentCap;
 }
 
-/** The thread configs a refresh visits, in order: enabled ones only, sticky first, otherwise in config page order. */
-export function refreshOrder(configs: readonly ThreadConfig[]): readonly ThreadConfig[] {
+/**
+ * The thread configs a refresh visits, in order: enabled ones only, those `isPinned` says are pinned first, otherwise
+ * in config page order.
+ */
+export function refreshOrder(
+    configs: readonly ThreadConfig[],
+    isPinned: (config: ThreadConfig) => boolean,
+): readonly ThreadConfig[] {
     // Array.prototype.sort is stable, so each group keeps its config page order.
     return configs
         .filter((config): boolean => config.enabled)
-        .sort((first, second): number => Number(second.sticky === true) - Number(first.sticky === true));
+        .sort((first, second): number => Number(isPinned(second)) - Number(isPinned(first)));
 }
 
 export function earliest(dates: readonly (Date | undefined)[]): Date | undefined {

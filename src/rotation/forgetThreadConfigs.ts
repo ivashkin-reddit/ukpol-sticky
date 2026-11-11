@@ -1,5 +1,5 @@
-import { refreshOrder } from "./domain/rotationRules.js";
 import type { PendingRefresh, RotationPorts } from "./ports.js";
+import { inRefreshOrder } from "./threadConfigOrder.js";
 
 export type ForgetPorts = Pick<
     RotationPorts,
@@ -50,7 +50,7 @@ async function findRecordedConfigNames(ports: ForgetPorts): Promise<ReadonlySet<
  */
 export async function forgetRemovedThreadConfigs(ports: ForgetPorts): Promise<void> {
     const recorded = await findRecordedConfigNames(ports);
-    const inForce = new Set(refreshOrder(await ports.threadConfigs()).map((config): string => config.name));
+    const inForce = new Set(inRefreshOrder(await ports.threadConfigs()).map((config): string => config.name));
     const removed = [...recorded].filter((configName): boolean => !inForce.has(configName));
     if (removed.length > 0) {
         console.log(`Forgetting removed or disabled thread configs: ${removed.join(", ")}.`);

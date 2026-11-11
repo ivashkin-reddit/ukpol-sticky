@@ -69,7 +69,6 @@ describe(getThreadStatuses, (): void => {
                             kind: "readable",
                             id: "t3_daily",
                             title: "Post t3_daily",
-                            stickied: false,
                             createdAt: new Date("2026-04-21T05:00:00Z"),
                             comments: 0,
                             commentCap: COMMENT_CAP,
