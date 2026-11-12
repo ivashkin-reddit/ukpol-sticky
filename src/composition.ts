@@ -1,3 +1,6 @@
+import { redisChangeHistory } from "./changes/adapters/redisChangeHistory.js";
+import type { ChangeHistoryRedis } from "./changes/adapters/redisChangeHistory.js";
+import type { ChangeHistoryStore } from "./changes/index.js";
 import { redisConfigStore } from "./configuration/adapters/redisConfigStore.js";
 import type { ConfigStoreRedis } from "./configuration/adapters/redisConfigStore.js";
 import { wikiConfigPage } from "./configuration/adapters/wikiConfigPage.js";
@@ -39,6 +42,8 @@ const THREAD_FAILURE_ALERT_KEY_PREFIX = "RefreshFailureAlertSent:";
 
 export type ConfigReadContext = ModmailContext & Readonly<{ redis: AlertLatchRedis & ConfigStoreRedis }>;
 
+export type ChangesContext = Readonly<{ redis: ChangeHistoryRedis }>;
+
 export type ConfigurationContext = ConfigReadContext & WikiConfigPageContext;
 
 export type RotationContext = ConfigReadContext &
@@ -57,7 +62,15 @@ export type RotationContext = ConfigReadContext &
  * Everything a handler receives: Devvit's clients for the request's installation, its subreddit, the app's slug, and,
  * for a request from Reddit's UI, who made it.
  */
-export type DevvitContext = ConfigurationContext & ModeratorsContext & RotationContext & Readonly<{ appSlug: string }>;
+export type DevvitContext = ChangesContext &
+    ConfigurationContext &
+    ModeratorsContext &
+    RotationContext &
+    Readonly<{ appSlug: string }>;
+
+export function changesPorts(context: ChangesContext): ChangeHistoryStore {
+    return redisChangeHistory(context.redis);
+}
 
 export function configReadPorts(context: ConfigReadContext): ConfigReadPorts {
     return {

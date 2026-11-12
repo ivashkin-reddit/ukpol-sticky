@@ -102,6 +102,7 @@ describe(layOutStatus, (): void => {
                         "Config page",
                         "Its latest revision is in force, saved by /u/mod_user.",
                     ),
+                    shownParagraph("changes", "Latest changes", "No changes yet."),
                     shown("disabled", "Disabled", "weekly-thread, ama-thread"),
                     {
                         type: "group",
@@ -168,6 +169,7 @@ describe(layOutStatus, (): void => {
 
             expect(
                 layOutStatus({
+                    changes: [],
                     now: NOW,
                     config: CONFIG_IN_FORCE,
                     threads: {
@@ -189,6 +191,7 @@ describe(layOutStatus, (): void => {
 
             expect(
                 layOutStatus({
+                    changes: [],
                     now: NOW,
                     config: { page: { kind: "unchecked" }, threadConfigs: { kind: "unreadable" } },
                     threads: undefined,
@@ -201,6 +204,7 @@ describe(layOutStatus, (): void => {
                     "Config page",
                     "The stored thread configs cannot be read, so refreshes have stopped. Save the config page again to store a fresh copy.",
                 ),
+                shownParagraph("changes", "Latest changes", "No changes yet."),
             ]);
         },
     );
@@ -212,6 +216,7 @@ describe(layOutStatus, (): void => {
             expect.assertions(1);
 
             const form = layOutStatus({
+                changes: [],
                 now: NOW,
                 config: CONFIG_IN_FORCE,
                 threads: {
@@ -225,6 +230,7 @@ describe(layOutStatus, (): void => {
             expect(namesOf(form.fields)).toStrictEqual([
                 "summary",
                 "config-page",
+                "changes",
                 "thread-1-live-post",
                 "thread-1-next-refresh",
                 "thread-1-last-refresh",
@@ -243,6 +249,7 @@ describe(layOutStatus, (): void => {
             },
         };
         const form = layOutStatus({
+            changes: [],
             now: NOW,
             config: CONFIG_IN_FORCE,
             threads: { threads: [longFailure], disabled: [], hourlyCheckScheduled: true },
@@ -258,6 +265,7 @@ describe(layOutStatus, (): void => {
 
         expect(
             layOutStatus({
+                changes: [],
                 now: NOW,
                 config: CONFIG_IN_FORCE,
                 threads: {

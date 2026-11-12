@@ -1,4 +1,5 @@
 import { formatDistanceStrict } from "date-fns";
+import type { Change, PinChange } from "./changes/index.js";
 import { describeProblemForStatus } from "./configuration/index.js";
 import type { ConfigPageStatus, Pin } from "./configuration/index.js";
 import { OLD_REDDIT_SLOTS } from "./highlights/index.js";
@@ -23,6 +24,9 @@ const MINUTE_ISO_LENGTH = 16;
 export const MAX_FIELD_TEXT = 500;
 
 export const UNREADABLE_SUMMARY = "Sticky Manager cannot read its stored thread configs.";
+
+/** The most of a post title one change shows: five changes share a field. */
+const MAX_CHANGE_TITLE = 80;
 
 /** `at` to the minute in UTC: "2026-04-21 10:00 UTC". */
 export function formatUtc(at: Date): string {
@@ -204,6 +208,40 @@ function briefReasons(status: ThreadStatus): string {
     return status.kind === "unreadable"
         ? `${status.configName}: its status could not be read`
         : `${status.configName}: ${status.attention.map(briefReason).join(", ")}`;
+}
+
+function quoted(title: string): string {
+    return `"${title.length > MAX_CHANGE_TITLE ? `${title.slice(0, MAX_CHANGE_TITLE - 1)}…` : title}"`;
+}
+
+function describePinAction(change: PinChange): string {
+    const post = quoted(change.post.title);
+    const label = change.label === undefined ? "" : ` (${change.label})`;
+    switch (change.action) {
+        case "pinned":
+            return `pinned ${post} to slot ${String(change.toSlot)}${label}`;
+        case "moved":
+            return `moved ${post} from slot ${String(change.fromSlot)} to slot ${String(change.toSlot)}`;
+        case "relabelled":
+            return `changed the label of ${post} in slot ${String(change.toSlot)} to ${change.label ?? "none"}`;
+        case "unpinned":
+            return `unpinned ${post} from slot ${String(change.fromSlot)}`;
+    }
+}
+
+/** One change, for the status: when, who, and what. */
+export function describeChange(change: Change): string {
+    const unpinned = change.unpinned === undefined ? "" : `; Reddit unpinned ${quoted(change.unpinned.title)}`;
+    return `${formatUtc(change.at)}, u/${change.moderator} ${describePinAction(change)}${unpinned}.`;
+}
+
+/** The latest changes, newest first, one a line; or that there are none, or that they could not be read. */
+export function describeChanges(changes: readonly Change[] | "unreadable"): string {
+    if (changes === "unreadable") {
+        return "Could not read the change history.";
+    }
+
+    return changes.length === 0 ? "No changes yet." : changes.map(describeChange).join("\n");
 }
 
 /** The log line for a status shown: who saw it, the counts, and why each thread config needing attention does. */

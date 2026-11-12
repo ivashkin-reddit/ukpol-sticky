@@ -1,10 +1,12 @@
 import type { Form, FormField } from "@devvit/web/shared";
+import type { Change } from "./changes/index.js";
 import type { ConfigPageStatus } from "./configuration/index.js";
 import { needsAttention } from "./rotation/index.js";
 import type { ReadableThreadStatus, ThreadStatus, ThreadStatuses } from "./rotation/index.js";
 import {
     cut,
     describeAttention,
+    describeChanges,
     describeComments,
     describeConfigPage,
     describeHandover,
@@ -33,6 +35,8 @@ export interface StatusView {
     readonly threads: ThreadStatuses | undefined;
     /** A line the description opens with, such as why a live post did not open. */
     readonly notice: string | undefined;
+    /** The latest changes, newest first; "unreadable" when the change history could not be read. */
+    readonly changes: readonly Change[] | "unreadable";
 }
 
 function shown(name: string, label: string, text: string): FormField {
@@ -115,6 +119,7 @@ export function layOutStatus(view: StatusView): Form {
         fields: [
             shown("summary", "Summary", threads === undefined ? UNREADABLE_SUMMARY : describeSummary(threads)),
             shownParagraph("config-page", "Config page", describeConfigPage(config)),
+            shownParagraph("changes", "Latest changes", describeChanges(view.changes)),
             ...(threads === undefined ? [] : threadFields(threads, now)),
         ],
         acceptLabel: "Open",

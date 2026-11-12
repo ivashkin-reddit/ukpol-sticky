@@ -1,4 +1,6 @@
+import type { UiResponse } from "@devvit/web/shared";
 import { describe, expect, it, vi } from "vitest";
+import { createFakeChangeHistory } from "../tests/support/fakeChangeHistory.js";
 import { freezeTime } from "../tests/support/fakeClock.js";
 import { createFakeConfigurationPorts } from "../tests/support/fakeConfigurationPorts.js";
 import { createFakeDevvitContext } from "../tests/support/fakeDevvitContext.js";
@@ -6,7 +8,8 @@ import { createFakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
 import type { FakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
 import { DAILY_CONFIG } from "../tests/support/rotationFixtures.js";
 import { silenceConsole } from "../tests/support/silenceConsole.js";
-import { configurationPorts, rotationPorts } from "./composition.js";
+import type { Change } from "./changes/index.js";
+import { changesPorts, configurationPorts, rotationPorts } from "./composition.js";
 import type * as Composition from "./composition.js";
 import type { DevvitContext } from "./composition.js";
 import { getConfigPageStatus } from "./configuration/index.js";
@@ -20,8 +23,10 @@ import type * as Rotation from "./rotation/index.js";
 import type { ThreadStatuses } from "./rotation/index.js";
 import { onStatusForm, onStatusMenu } from "./status.js";
 import { layOutStatus } from "./statusForm.js";
+import type { StatusView } from "./statusForm.js";
 
 vi.mock(import("./composition.js"), (): Partial<typeof Composition> => ({
+    changesPorts: vi.fn<typeof changesPorts>(),
     configurationPorts: vi.fn<typeof configurationPorts>(),
     rotationPorts: vi.fn<typeof rotationPorts>(),
 }));
@@ -46,6 +51,18 @@ const TEST_OPTIONS = { timeout: 1000 };
 
 const MODERATOR: Caller = { kind: "moderator", moderator: { username: "mod_user", permissions: ["all"] } };
 
+const CHANGE: Change = {
+    kind: "pin",
+    at: new Date("2026-04-21T09:00:00Z"),
+    moderator: "mod_user",
+    action: "pinned",
+    post: { id: "t3_ama", title: "AMA" },
+    fromSlot: undefined,
+    toSlot: 2,
+    label: "Event",
+    unpinned: undefined,
+};
+
 const CONFIG: ConfigPageStatus = {
     page: { kind: "inForce", savedBy: "mod_user" },
     threadConfigs: { kind: "readable", configs: [DAILY_CONFIG] },
@@ -58,11 +75,17 @@ interface Wiring {
     readonly rotation: FakeRotationPorts;
 }
 
+/** The status a moderator is shown now: `view`, laid out. */
+function statusShown(view: Pick<StatusView, "changes" | "config" | "notice" | "threads">): UiResponse {
+    return { showForm: { name: "statusForm", form: layOutStatus({ ...view, now: new Date() }) } };
+}
+
 /** A request's context as of 10:00, the composition root building fake ports from it, and the status read. */
 function wired(): Wiring {
     freezeTime("2026-04-21T10:00:00Z");
     const { context } = createFakeDevvitContext();
     const rotation = createFakeRotationPorts();
+    vi.mocked(changesPorts).mockReturnValue(createFakeChangeHistory().store);
     vi.mocked(configurationPorts).mockReturnValue(createFakeConfigurationPorts().ports);
     vi.mocked(rotationPorts).mockReturnValue(rotation.ports);
     vi.mocked(getConfigPageStatus).mockResolvedValue(CONFIG);
@@ -102,12 +125,9 @@ describe(onStatusMenu, (): void => {
             const { context, rotation } = wired();
             vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
 
-            await expect(onStatusMenu({}, context)).resolves.toStrictEqual({
-                showForm: {
-                    name: "statusForm",
-                    form: layOutStatus({ now: new Date(), config: CONFIG, threads: THREADS, notice: undefined }),
-                },
-            });
+            await expect(onStatusMenu({}, context)).resolves.toStrictEqual(
+                statusShown({ changes: [], config: CONFIG, threads: THREADS, notice: undefined }),
+            );
             expect(vi.mocked(getThreadStatuses)).toHaveBeenCalledExactlyOnceWith([DAILY_CONFIG], rotation.ports);
             expect(logSpy).toHaveBeenCalledExactlyOnceWith(
                 "Showed the status to u/mod_user: 0 thread configs, 0 need attention.",
@@ -127,13 +147,49 @@ describe(onStatusMenu, (): void => {
             vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
             vi.mocked(getConfigPageStatus).mockResolvedValue(unreadable);
 
-            await expect(onStatusMenu({}, context)).resolves.toStrictEqual({
-                showForm: {
-                    name: "statusForm",
-                    form: layOutStatus({ now: new Date(), config: unreadable, threads: undefined, notice: undefined }),
-                },
-            });
+            await expect(onStatusMenu({}, context)).resolves.toStrictEqual(
+                statusShown({ changes: [], config: unreadable, threads: undefined, notice: undefined }),
+            );
             expect(vi.mocked(getThreadStatuses)).not.toHaveBeenCalled();
+        },
+    );
+
+    it("shows the latest changes, newest first", TEST_OPTIONS, async (): Promise<void> => {
+        expect.assertions(1);
+
+        silenceConsole("log");
+        const { context } = wired();
+        const older: Change = { ...CHANGE, at: new Date("2026-04-20T10:00:00Z") };
+        vi.mocked(changesPorts).mockReturnValue(createFakeChangeHistory([older, CHANGE]).store);
+        vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
+
+        await expect(onStatusMenu({}, context)).resolves.toStrictEqual(
+            statusShown({ changes: [CHANGE, older], config: CONFIG, threads: THREADS, notice: undefined }),
+        );
+    });
+
+    it(
+        "shows the rest of the status, and logs why, when the change history cannot be read",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            silenceConsole("log");
+            const errorSpy = silenceConsole("error");
+            const { context } = wired();
+            const readError = new Error("Redis is down");
+            const history = createFakeChangeHistory();
+            history.all.mockRejectedValue(readError);
+            vi.mocked(changesPorts).mockReturnValue(history.store);
+            vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
+
+            await expect(onStatusMenu({}, context)).resolves.toStrictEqual(
+                statusShown({ changes: "unreadable", config: CONFIG, threads: THREADS, notice: undefined }),
+            );
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+                "The status could not read the change history:",
+                readError,
+            );
         },
     );
 });
@@ -159,12 +215,9 @@ describe(onStatusForm, (): void => {
         const { context } = wired();
         vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
 
-        await expect(onStatusForm({ configName: undefined }, context)).resolves.toStrictEqual({
-            showForm: {
-                name: "statusForm",
-                form: layOutStatus({ now: new Date(), config: CONFIG, threads: THREADS, notice: undefined }),
-            },
-        });
+        await expect(onStatusForm({ configName: undefined }, context)).resolves.toStrictEqual(
+            statusShown({ changes: [], config: CONFIG, threads: THREADS, notice: undefined }),
+        );
     });
 
     it("opens the chosen thread config's live post on Reddit, and logs it", TEST_OPTIONS, async (): Promise<void> => {
@@ -195,17 +248,14 @@ describe(onStatusForm, (): void => {
             vi.mocked(identifyCaller).mockResolvedValue(MODERATOR);
             vi.mocked(findLivePostLink).mockResolvedValue(undefined);
 
-            await expect(onStatusForm({ configName: "<script>" }, context)).resolves.toStrictEqual({
-                showForm: {
-                    name: "statusForm",
-                    form: layOutStatus({
-                        now: new Date(),
-                        config: CONFIG,
-                        threads: THREADS,
-                        notice: "The thread config you chose has no live post now.",
-                    }),
-                },
-            });
+            await expect(onStatusForm({ configName: "<script>" }, context)).resolves.toStrictEqual(
+                statusShown({
+                    changes: [],
+                    config: CONFIG,
+                    threads: THREADS,
+                    notice: "The thread config you chose has no live post now.",
+                }),
+            );
         },
     );
 
