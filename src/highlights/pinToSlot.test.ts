@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createFakeChangeHistory } from "../../tests/support/fakeChangeHistory.js";
 import type { FakeChangeHistory } from "../../tests/support/fakeChangeHistory.js";
 import { freezeTime } from "../../tests/support/fakeClock.js";
-import { createFakeHighlights, unlabelled } from "../../tests/support/fakeHighlights.js";
+import { createFakeHighlights, fakeManagedPostLock, unlabelled } from "../../tests/support/fakeHighlights.js";
 import type { FakeHighlights } from "../../tests/support/fakeHighlights.js";
 import type { PinChange } from "../changes/index.js";
 import type { PinRequest } from "./pinToSlot.js";
 import { describeHighlights, pinToSlot } from "./pinToSlot.js";
-import type { Highlight, HighlightsPorts, ManagedPostLock } from "./ports.js";
+import type { Highlight, HighlightsPorts } from "./ports.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -46,13 +46,12 @@ function pinWorld(initial: readonly Highlight[], busy = false): PinWorld {
     freezeTime(NOW);
     const highlights = createFakeHighlights(initial);
     const history = createFakeChangeHistory();
-    const managedPostLock: ManagedPostLock = async <Result>(
-        _postId: string,
-        run: () => Promise<Result>,
-    ): Promise<Readonly<{ kind: "busy" }> | Readonly<{ kind: "ran"; result: Result }>> =>
-        busy ? { kind: "busy" } : { kind: "ran", result: await run() };
     return {
-        ports: { highlights: highlights.highlights, managedPostLock, changeHistory: history.store },
+        ports: {
+            highlights: highlights.highlights,
+            managedPostLock: fakeManagedPostLock(busy),
+            changeHistory: history.store,
+        },
         highlights,
         history,
     };

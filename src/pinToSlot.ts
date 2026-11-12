@@ -6,12 +6,13 @@ import { describeHighlights, isHighlightLabel, MAX_HIGHLIGHTS, pinToSlot } from 
 import type { HighlightLabel, PinOutcome } from "./highlights/index.js";
 import { canManagePosts, identifyCaller } from "./moderators.js";
 import type { Moderator, ModeratorsContext } from "./moderators.js";
-import { layOutPinForm, NO_LABEL, NOT_PINNED, PIN_FORM_NAME } from "./pinForm.js";
+import { KEEP_PINNED, layOutPinForm, NO_LABEL, NOT_PINNED, PIN_FORM_NAME } from "./pinForm.js";
 import {
     BUSY_TOAST,
     confirmNotice,
     describeOutcome,
     describePinLog,
+    keptToast,
     notModeratorToast,
     notThisSubredditToast,
     PERMISSION_TOAST,
@@ -145,6 +146,15 @@ async function askToConfirm(
     return await showAgain(access, { notice: confirmNotice(pending.wouldUnpin), why }, context);
 }
 
+/** The moderator chose to keep the highlights as they are: nothing is pinned, and the toast names what stays. */
+async function keepPinned(access: AllowedPin, context: PinContext): Promise<UiResponse> {
+    const view = await describeHighlights(access.post.id, highlightsPorts(context).highlights);
+    console.log(
+        `u/${access.moderator.username} chose to keep the highlights as they are, so post ${access.post.id} was not pinned.`,
+    );
+    return { showToast: keptToast(view.wouldUnpin) };
+}
+
 /** The slot and label chosen; undefined when either is one the form never offers. */
 function readChoices(
     event: PinFormEvent,
@@ -179,13 +189,14 @@ export async function onPinForm(event: PinFormEvent, context: PinContext): Promi
         );
     }
 
-    const request = {
-        moderator: access.moderator.username,
-        post: access.post,
-        ...choices,
-        confirmedUnpin: event.confirmUnpin,
-    };
-    const outcome = await pinToSlot(request, highlightsPorts(context));
+    if (event.confirmUnpin === KEEP_PINNED) {
+        return await keepPinned(access, context);
+    }
+
+    const outcome = await pinToSlot(
+        { moderator: access.moderator.username, post: access.post, ...choices, confirmedUnpin: event.confirmUnpin },
+        highlightsPorts(context),
+    );
     return outcome.kind === "confirm"
         ? await askToConfirm(access, { wouldUnpin: outcome.wouldUnpin, confirmed: event.confirmUnpin }, context)
         : answer(outcome, access);

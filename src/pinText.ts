@@ -55,7 +55,12 @@ export function describePinLog(change: PinChange): string {
     return `u/${change.moderator} ${describeLogAction(change)}.${unpinned}`;
 }
 
+/** The toast when the moderator chose to keep the highlights: the post Reddit would have unpinned stays. */
+export function keptToast(kept: PostRef | undefined): string {
+    return kept === undefined ? "Nothing pinned." : `Nothing pinned: ${quoted(kept.title)} stays pinned.`;
+}
+
 /** Why the form is shown again: pinning would unpin `post`, which the moderator has not confirmed. */
 export function confirmNotice(post: PostRef): string {
-    return `Pinning this post unpins ${quoted(post.title)}: confirm below to go ahead.`;
+    return `Pinning this post unpins ${quoted(post.title)}: choose below what to do.`;
 }

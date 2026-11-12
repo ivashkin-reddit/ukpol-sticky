@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { PostRef } from "../../src/changes/index.js";
-import type { Highlight, HighlightLabel, Highlights } from "../../src/highlights/index.js";
+import type { Highlight, HighlightLabel, Highlights, ManagedPostLock } from "../../src/highlights/index.js";
 
 export interface FakeHighlights {
     readonly highlights: Highlights;
@@ -87,4 +87,13 @@ export function createFakeHighlights(
 /** Highlights of `postIds` in that order, with no labels. */
 export function unlabelled(...postIds: readonly string[]): Highlight[] {
     return postIds.map((postId: string): Highlight => ({ postId, label: undefined }));
+}
+
+/** A managed thread's lock as rotation holds it: runs the pin, or is busy as while a refresh holds the lock. */
+export function fakeManagedPostLock(busy = false): ManagedPostLock {
+    return async <Result>(
+        _postId: string,
+        run: () => Promise<Result>,
+    ): Promise<Readonly<{ kind: "busy" }> | Readonly<{ kind: "ran"; result: Result }>> =>
+        busy ? { kind: "busy" } : { kind: "ran", result: await run() };
 }

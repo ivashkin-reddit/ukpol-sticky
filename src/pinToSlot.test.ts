@@ -4,7 +4,7 @@ import { createFakeChangeHistory } from "../tests/support/fakeChangeHistory.js";
 import type { FakeChangeHistory } from "../tests/support/fakeChangeHistory.js";
 import { freezeTime } from "../tests/support/fakeClock.js";
 import { createFakeDevvitContext } from "../tests/support/fakeDevvitContext.js";
-import { createFakeHighlights, unlabelled } from "../tests/support/fakeHighlights.js";
+import { createFakeHighlights, fakeManagedPostLock, unlabelled } from "../tests/support/fakeHighlights.js";
 import type { FakeHighlights } from "../tests/support/fakeHighlights.js";
 import { createFakeRotationPorts } from "../tests/support/fakeRotationPorts.js";
 import { STICKY_CONFIG } from "../tests/support/rotationFixtures.js";
@@ -12,7 +12,7 @@ import { silenceConsole } from "../tests/support/silenceConsole.js";
 import { highlightsPorts, rotationPorts } from "./composition.js";
 import type * as Composition from "./composition.js";
 import type { DevvitContext } from "./composition.js";
-import type { Highlight, ManagedPostLock } from "./highlights/index.js";
+import type { Highlight } from "./highlights/index.js";
 import { identifyCaller } from "./moderators.js";
 import type * as Moderators from "./moderators.js";
 import type { Caller } from "./moderators.js";
@@ -50,11 +50,6 @@ function pinWorld(caller: Caller, initial: readonly Highlight[] = unlabelled("t3
     const { context } = createFakeDevvitContext();
     const highlights = createFakeHighlights(initial, ["t3_foreign"]);
     const history = createFakeChangeHistory();
-    const managedPostLock: ManagedPostLock = async <Result>(
-        _postId: string,
-        run: () => Promise<Result>,
-    ): Promise<Readonly<{ kind: "busy" }> | Readonly<{ kind: "ran"; result: Result }>> =>
-        busy ? { kind: "busy" } : { kind: "ran", result: await run() };
     const rotation = createFakeRotationPorts([STICKY_CONFIG], {
         all: async (): Promise<Readonly<Record<string, string>>> =>
             await Promise.resolve({ "sticky-thread": "t3_live" }),
@@ -62,7 +57,7 @@ function pinWorld(caller: Caller, initial: readonly Highlight[] = unlabelled("t3
     vi.mocked(identifyCaller).mockResolvedValue(caller);
     vi.mocked(highlightsPorts).mockReturnValue({
         highlights: highlights.highlights,
-        managedPostLock,
+        managedPostLock: fakeManagedPostLock(busy),
         changeHistory: history.store,
     });
     vi.mocked(rotationPorts).mockReturnValue(rotation.ports);
@@ -248,11 +243,30 @@ describe(onPinForm, (): void => {
             const response = await onPinForm({ ...FORM, confirmUnpin }, world.context);
 
             expect(response.showForm?.form.description).toBe(
-                'Pinning this post unpins "Title of t3_f": confirm below to go ahead. Slots 1 and 2 are old.reddit\'s two stickies.',
+                'Pinning this post unpins "Title of t3_f": choose below what to do. Slots 1 and 2 are old.reddit\'s two stickies.',
             );
             expect(world.highlights.pin).not.toHaveBeenCalled();
             expect(logSpy).toHaveBeenCalledExactlyOnceWith(
                 `Showed the pin form for post t3_ama to u/mod_user again: pinning it would unpin t3_f, and ${confirmed}.`,
+            );
+        },
+    );
+
+    it(
+        "pins nothing, and says what stays, when the moderator chose to keep the highlights",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(3);
+
+            const logSpy = silenceConsole("log");
+            const world = pinWorld(POSTER, unlabelled("t3_a", "t3_b", "t3_c", "t3_d", "t3_e", "t3_f"));
+
+            await expect(onPinForm({ ...FORM, confirmUnpin: "keep" }, world.context)).resolves.toStrictEqual({
+                showToast: 'Nothing pinned: "Title of t3_f" stays pinned.',
+            });
+            expect(world.highlights.pin).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "u/mod_user chose to keep the highlights as they are, so post t3_ama was not pinned.",
             );
         },
     );

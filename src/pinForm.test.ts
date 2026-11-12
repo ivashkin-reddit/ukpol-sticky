@@ -158,10 +158,13 @@ describe(layOutPinForm, (): void => {
         expect(field(fields, "confirmUnpin")).toStrictEqual({
             type: "select",
             name: "confirmUnpin",
-            label: 'Unpin "Probe 6"',
-            helpText: "All six highlights are taken: pinning this post unpins this one.",
-            options: [{ label: 'Unpin "Probe 6"', value: "t3_p6" }],
-            required: false,
+            label: "To make room",
+            helpText: 'All six highlights are taken: pinning this post unpins "Probe 6".',
+            options: [
+                { label: 'Unpin "Probe 6" to make room', value: "t3_p6" },
+                { label: 'Keep "Probe 6" pinned (pin nothing)', value: "keep" },
+            ],
+            required: true,
         });
     });
 });

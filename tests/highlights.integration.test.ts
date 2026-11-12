@@ -130,7 +130,7 @@ describe("highlights on the harness", (): void => {
 
             expect(asked.body).toHaveProperty(
                 "showForm.form.description",
-                'Pinning this post unpins "F": confirm below to go ahead. Slots 1 and 2 are old.reddit\'s two stickies.',
+                'Pinning this post unpins "F": choose below what to do. Slots 1 and 2 are old.reddit\'s two stickies.',
             );
             expect(confirmed.body).toStrictEqual({ showToast: 'Pinned "AMA" to slot 1.' });
             await expect(highlightIds()).resolves.toStrictEqual([postId, ...others.slice(0, 5)]);

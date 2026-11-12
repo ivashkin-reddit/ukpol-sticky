@@ -5,6 +5,7 @@ import {
     confirmNotice,
     describeOutcome,
     describePinLog,
+    keptToast,
     notModeratorToast,
     notThisSubredditToast,
     PERMISSION_TOAST,
@@ -81,11 +82,18 @@ describe("the pin toasts", (): void => {
         expect(UNCHANGED_TOAST).toBe("Nothing to change.");
     });
 
+    it("says nothing was pinned, naming the post that stays when there is one", TEST_OPTIONS, (): void => {
+        expect.assertions(2);
+
+        expect(keptToast({ id: "t3_f", title: "Probe 6" })).toBe('Nothing pinned: "Probe 6" stays pinned.');
+        expect(keptToast(undefined)).toBe("Nothing pinned.");
+    });
+
     it("asks the moderator to confirm the post Reddit would unpin", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 
         expect(confirmNotice({ id: "t3_f", title: "Probe 6" })).toBe(
-            'Pinning this post unpins "Probe 6": confirm below to go ahead.',
+            'Pinning this post unpins "Probe 6": choose below what to do.',
         );
     });
 });

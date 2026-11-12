@@ -220,7 +220,7 @@ The form shows the highlights now, then offers:
 
 - **Slot:** 1 to 6, up to one more than the other pinned posts, or **Not pinned** to unpin it. Slots 1 and 2 are old.reddit's two stickies.
 - **Label:** Megathread, Announcement, Event or None, shown under the post in new Reddit's highlights.
-- **Unpin "…":** when all six slots are taken, pinning another post makes Reddit unpin the sixth. Choose it to confirm; the form asks again if the highlights have changed in the meantime.
+- **To make room:** shown when all six slots are taken, since pinning another post makes Reddit unpin the sixth. Choose **Unpin "…" to make room** to go ahead, or **Keep "…" pinned** to pin nothing; the form will not save until you choose. If the highlights change in the meantime, it asks again.
 
 A thread's live post can be moved too; it returns to its thread config's `slot` at its next rotation. Each change is recorded with who made it and when, and the status shows the latest.
 

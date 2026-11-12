@@ -19,6 +19,8 @@ export const PIN_FIELDS = {
 /** The slot choice for "Not pinned", and the label choice for none. */
 export const NOT_PINNED = "none";
 export const NO_LABEL = "none";
+/** The "To make room" choice that pins nothing, leaving the highlights as they are. */
+export const KEEP_PINNED = "keep";
 
 const SLOTS_NOTE = "Slots 1 and 2 are old.reddit's two stickies.";
 
@@ -101,6 +103,10 @@ function labelField(view: PinView): FormField {
     };
 }
 
+/**
+ * When all six are taken, a required choice: unpin the post Reddit would drop (its ID, so a changed list asks again),
+ * or keep the highlights as they are. Save stays blocked until one is chosen.
+ */
 function confirmField(wouldUnpin: PostRef | undefined): FormField[] {
     return wouldUnpin === undefined
         ? []
@@ -108,10 +114,13 @@ function confirmField(wouldUnpin: PostRef | undefined): FormField[] {
               {
                   type: "select",
                   name: PIN_FIELDS.confirm,
-                  label: `Unpin "${wouldUnpin.title}"`,
-                  helpText: "All six highlights are taken: pinning this post unpins this one.",
-                  options: [{ label: `Unpin "${wouldUnpin.title}"`, value: wouldUnpin.id }],
-                  required: false,
+                  label: "To make room",
+                  helpText: `All six highlights are taken: pinning this post unpins "${wouldUnpin.title}".`,
+                  options: [
+                      { label: `Unpin "${wouldUnpin.title}" to make room`, value: wouldUnpin.id },
+                      { label: `Keep "${wouldUnpin.title}" pinned (pin nothing)`, value: KEEP_PINNED },
+                  ],
+                  required: true,
               },
           ];
 }
