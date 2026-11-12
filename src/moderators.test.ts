@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFakeDevvitContext, listingOf } from "../tests/support/fakeDevvitContext.js";
-import { identifyCaller } from "./moderators.js";
+import { canManagePosts, identifyCaller } from "./moderators.js";
 
 // Unit tests run in milliseconds; a second is far beyond any legitimate run.
 const TEST_OPTIONS = { timeout: 1000 };
@@ -72,4 +72,26 @@ describe(identifyCaller, (): void => {
             moderator: { username: "mod_user", permissions: [] },
         });
     });
+});
+
+describe(canManagePosts, (): void => {
+    it.for<readonly string[]>([["all"], ["posts"], ["wiki", "posts"]])(
+        "lets a moderator with %j change posts",
+        TEST_OPTIONS,
+        (permissions: readonly string[]): void => {
+            expect.assertions(1);
+
+            expect(canManagePosts({ username: "mod_user", permissions })).toBe(true);
+        },
+    );
+
+    it.for<readonly string[]>([[], ["wiki"], ["mail", "flair"]])(
+        "refuses a moderator with %j",
+        TEST_OPTIONS,
+        (permissions: readonly string[]): void => {
+            expect.assertions(1);
+
+            expect(canManagePosts({ username: "mod_user", permissions })).toBe(false);
+        },
+    );
 });

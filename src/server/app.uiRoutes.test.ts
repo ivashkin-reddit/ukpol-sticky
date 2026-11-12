@@ -3,11 +3,18 @@ import { freezeDate } from "../../tests/support/fakeClock.js";
 import { createFakeDevvitContext } from "../../tests/support/fakeDevvitContext.js";
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import type { DevvitContext } from "../composition.js";
+import { onPinForm, onPinMenu } from "../pinToSlot.js";
+import type * as PinToSlot from "../pinToSlot.js";
 import { onStatusForm, onStatusMenu } from "../status.js";
 import type * as Status from "../status.js";
 import { createApp } from "./app.js";
 
-// The routes for moderators' actions in Reddit's UI: the status's menu item and form.
+// The routes for moderators' actions in Reddit's UI: the status's and Pin to slot's menu items and forms.
+
+vi.mock(import("../pinToSlot.js"), (): Partial<typeof PinToSlot> => ({
+    onPinForm: vi.fn<typeof onPinForm>(),
+    onPinMenu: vi.fn<typeof onPinMenu>(),
+}));
 
 vi.mock(import("../status.js"), (): Partial<typeof Status> => ({
     onStatusForm: vi.fn<typeof onStatusForm>(),
@@ -38,6 +45,8 @@ interface UiRouteCase {
     /** Makes the route's handler answer with a toast saying `text`. */
     readonly answer: (text: string) => void;
     readonly fail: (failure: Readonly<Error>) => void;
+    /** The fixed toast a failure of the route answers. */
+    readonly failureToast: string;
     readonly handlerCalls: () => readonly unknown[];
 }
 
@@ -53,6 +62,7 @@ const UI_ROUTE_CASES: readonly UiRouteCase[] = [
         fail: (failure: Readonly<Error>): void => {
             vi.mocked(onStatusMenu).mockRejectedValue(failure);
         },
+        failureToast: "Sticky Manager could not show its status. Try again shortly.",
         handlerCalls: (): readonly unknown[] => vi.mocked(onStatusMenu).mock.calls,
     },
     {
@@ -66,7 +76,36 @@ const UI_ROUTE_CASES: readonly UiRouteCase[] = [
         fail: (failure: Readonly<Error>): void => {
             vi.mocked(onStatusForm).mockRejectedValue(failure);
         },
+        failureToast: "Sticky Manager could not show its status. Try again shortly.",
         handlerCalls: (): readonly unknown[] => vi.mocked(onStatusForm).mock.calls,
+    },
+    {
+        path: "/internal/menu/pin",
+        name: "Pin menu",
+        body: { location: "post", targetId: "t3_abc" },
+        event: { postId: "t3_abc" },
+        answer: (text: string): void => {
+            vi.mocked(onPinMenu).mockResolvedValue({ showToast: text });
+        },
+        fail: (failure: Readonly<Error>): void => {
+            vi.mocked(onPinMenu).mockRejectedValue(failure);
+        },
+        failureToast: "Sticky Manager could not open Pin to slot. Try again shortly.",
+        handlerCalls: (): readonly unknown[] => vi.mocked(onPinMenu).mock.calls,
+    },
+    {
+        path: "/internal/forms/pin",
+        name: "Pin form",
+        body: { "post": ["t3_a"], "slot": ["2"], "label": ["event"], "highlights-now": "anything" },
+        event: { postId: "t3_a", slot: "2", label: "event", confirmUnpin: undefined },
+        answer: (text: string): void => {
+            vi.mocked(onPinForm).mockResolvedValue({ showToast: text });
+        },
+        fail: (failure: Readonly<Error>): void => {
+            vi.mocked(onPinForm).mockRejectedValue(failure);
+        },
+        failureToast: "Sticky Manager could not pin that post. Try again shortly.",
+        handlerCalls: (): readonly unknown[] => vi.mocked(onPinForm).mock.calls,
     },
 ];
 
@@ -104,7 +143,7 @@ describe("the UI routes", (): void => {
 
             await expect(post(context, routeCase.path, JSON.stringify(routeCase.body))).resolves.toStrictEqual({
                 status: 200,
-                body: { showToast: "Sticky Manager could not show its status. Try again shortly." },
+                body: { showToast: routeCase.failureToast },
             });
             expect(errorSpy).toHaveBeenCalledExactlyOnceWith(`${routeCase.name} failed after 0 ms:`, failure);
         },

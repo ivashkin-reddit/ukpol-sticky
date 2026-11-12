@@ -1,3 +1,5 @@
+import { PIN_FIELDS } from "../pinForm.js";
+import type { PinFormEvent, PinMenuEvent } from "../pinToSlot.js";
 import type { StatusFormEvent } from "../status.js";
 import { STATUS_FORM_CHOICE } from "../statusForm.js";
 import type { CommentCreateEvent, ModActionEvent, PostDeleteEvent, RefreshJobEvent } from "../triggers.js";
@@ -91,4 +93,25 @@ function onlyString(value: unknown): string | undefined {
  */
 export function readStatusFormEvent(body: JsonObject): StatusFormEvent {
     return { configName: onlyString(body[STATUS_FORM_CHOICE]) };
+}
+
+const POST_ID_PREFIX = "t3_";
+
+/** The post a post menu item was pressed on: its target, when that is a post's ID (t3_); anything else is none. */
+export function readPinMenuEvent(body: JsonObject): PinMenuEvent {
+    const targetId = stringField(body, "targetId");
+    return { postId: targetId?.startsWith(POST_ID_PREFIX) === true ? targetId : undefined };
+}
+
+/**
+ * A pin form submission's choices: the post, the slot, the label and the confirmation, each a select read as exactly
+ * one string or as none. The read-only list of highlights, and anything else a submission carries, is not read.
+ */
+export function readPinFormEvent(body: JsonObject): PinFormEvent {
+    return {
+        postId: onlyString(body[PIN_FIELDS.post]),
+        slot: onlyString(body[PIN_FIELDS.slot]),
+        label: onlyString(body[PIN_FIELDS.label]),
+        confirmUnpin: onlyString(body[PIN_FIELDS.confirm]),
+    };
 }

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { DevvitContext } from "../src/composition.js";
+import { PIN_FORM_NAME } from "../src/pinForm.js";
+import type { onPinForm, onPinMenu } from "../src/pinToSlot.js";
+import type * as PinToSlot from "../src/pinToSlot.js";
 import { REFRESH_CHECK_JOB_NAME, REFRESH_JOB_NAME } from "../src/rotation/adapters/schedulerRefreshJobs.js";
 import { createApp } from "../src/server/app.js";
 import type { onStatusForm, onStatusMenu } from "../src/status.js";
@@ -26,6 +29,11 @@ vi.mock(import("../src/triggers.js"), (): Partial<typeof Triggers> => ({
     onPostDelete: vi.fn<typeof onPostDelete>(),
     onRefreshCheck: vi.fn<typeof onRefreshCheck>(),
     onRefreshJob: vi.fn<typeof onRefreshJob>(),
+}));
+
+vi.mock(import("../src/pinToSlot.js"), (): Partial<typeof PinToSlot> => ({
+    onPinForm: vi.fn<typeof onPinForm>().mockResolvedValue({}),
+    onPinMenu: vi.fn<typeof onPinMenu>().mockResolvedValue({}),
 }));
 
 vi.mock(import("../src/status.js"), (): Partial<typeof Status> => ({
@@ -66,10 +74,17 @@ const EXPECTED_CONFIG = {
                 location: "subreddit",
                 endpoint: "/internal/menu/status",
             },
+            {
+                label: "Pin to slot",
+                description: "Pin this post into a chosen highlight slot",
+                forUserType: "moderator",
+                location: "post",
+                endpoint: "/internal/menu/pin",
+            },
         ],
     },
-    // Keyed by the name the status form is shown under, so devvit.json and the form cannot drift apart.
-    forms: { [STATUS_FORM_NAME]: "/internal/forms/status" },
+    // Keyed by the names the forms are shown under, so devvit.json and the forms cannot drift apart.
+    forms: { [STATUS_FORM_NAME]: "/internal/forms/status", [PIN_FORM_NAME]: "/internal/forms/pin" },
     permissions: { http: { enable: false }, redis: true, reddit: { enable: true, scope: "user" } },
     scripts: { build: "vite build", dev: "vite build --watch" },
     dev: { subreddit: "ukpol_megabot_dev" },

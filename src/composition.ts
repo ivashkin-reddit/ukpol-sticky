@@ -9,6 +9,7 @@ import { getThreadConfigs } from "./configuration/index.js";
 import type { ConfigReadPorts, ConfigurationPorts, ThreadConfig } from "./configuration/index.js";
 import { redditHighlights } from "./highlights/adapters/redditHighlights.js";
 import type { RedditHighlightsContext } from "./highlights/adapters/redditHighlights.js";
+import type { HighlightsPorts } from "./highlights/index.js";
 import type { ModeratorsContext } from "./moderators.js";
 import { modmailNotifier } from "./notifications/adapters/modmail.js";
 import type { ModmailContext } from "./notifications/adapters/modmail.js";
@@ -29,6 +30,7 @@ import { redisThreadLocks } from "./rotation/adapters/redisThreadLocks.js";
 import type { ThreadLocksRedis } from "./rotation/adapters/redisThreadLocks.js";
 import { schedulerRefreshJobs } from "./rotation/adapters/schedulerRefreshJobs.js";
 import type { RefreshScheduler } from "./rotation/adapters/schedulerRefreshJobs.js";
+import { holdLivePostLock } from "./rotation/index.js";
 import type { RotationPorts } from "./rotation/index.js";
 
 // The only code that builds adapters: each function turns the Devvit context a handler receives into the ports a
@@ -100,5 +102,21 @@ export function rotationPorts(context: RotationContext): RotationPorts {
         threadFailureAlert: (configName: string): AlertLatch =>
             redisAlertLatch(context.redis, `${THREAD_FAILURE_ALERT_KEY_PREFIX}${configName}`),
         threadLocks: redisThreadLocks(context.redis),
+    };
+}
+
+/** What "Pin to slot" uses: the highlights, the change history, and rotation's locks; RotationContext carries the highlights. */
+export type HighlightsContext = ChangesContext & RotationContext;
+
+export function highlightsPorts(context: HighlightsContext): HighlightsPorts {
+    const rotation = rotationPorts(context);
+    return {
+        highlights: rotation.highlights,
+        changeHistory: changesPorts(context),
+        managedPostLock: async <Result>(
+            postId: string,
+            run: () => Promise<Result>,
+        ): Promise<Readonly<{ kind: "busy" }> | Readonly<{ kind: "ran"; result: Result }>> =>
+            await holdLivePostLock(postId, run, rotation),
     };
 }

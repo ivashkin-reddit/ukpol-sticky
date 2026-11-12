@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import type { DevvitContext } from "../composition.js";
 import { observed } from "../observed.js";
 import type { SuccessLogging } from "../observed.js";
+import { onPinForm, onPinMenu } from "../pinToSlot.js";
 import { onStatusForm, onStatusMenu } from "../status.js";
 import {
     onAppInstall,
@@ -18,6 +19,8 @@ import {
     isJsonObject,
     readCommentCreateEvent,
     readModActionEvent,
+    readPinFormEvent,
+    readPinMenuEvent,
     readPostDeleteEvent,
     readRefreshJobEvent,
     readStatusFormEvent,
@@ -119,6 +122,8 @@ interface UiRoute {
 }
 
 const STATUS_FAILURE = "Sticky Manager could not show its status. Try again shortly.";
+const PIN_MENU_FAILURE = "Sticky Manager could not open Pin to slot. Try again shortly.";
+const PIN_FORM_FAILURE = "Sticky Manager could not pin that post. Try again shortly.";
 
 const UI_ROUTES: readonly UiRoute[] = [
     { path: "/internal/menu/status", name: "Status menu", failureToast: STATUS_FAILURE, handle: onStatusMenu },
@@ -128,6 +133,20 @@ const UI_ROUTES: readonly UiRoute[] = [
         failureToast: STATUS_FAILURE,
         handle: async (body: JsonObject, context: DevvitContext): Promise<UiResponse> =>
             await onStatusForm(readStatusFormEvent(body), context),
+    },
+    {
+        path: "/internal/menu/pin",
+        name: "Pin menu",
+        failureToast: PIN_MENU_FAILURE,
+        handle: async (body: JsonObject, context: DevvitContext): Promise<UiResponse> =>
+            await onPinMenu(readPinMenuEvent(body), context),
+    },
+    {
+        path: "/internal/forms/pin",
+        name: "Pin form",
+        failureToast: PIN_FORM_FAILURE,
+        handle: async (body: JsonObject, context: DevvitContext): Promise<UiResponse> =>
+            await onPinForm(readPinFormEvent(body), context),
     },
 ];
 

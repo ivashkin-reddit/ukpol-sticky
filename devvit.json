@@ -23,10 +23,17 @@
         "forUserType": "moderator",
         "location": "subreddit",
         "endpoint": "/internal/menu/status"
+      },
+      {
+        "label": "Pin to slot",
+        "description": "Pin this post into a chosen highlight slot",
+        "forUserType": "moderator",
+        "location": "post",
+        "endpoint": "/internal/menu/pin"
       }
     ]
   },
-  "forms": { "statusForm": "/internal/forms/status" },
+  "forms": { "statusForm": "/internal/forms/status", "pinForm": "/internal/forms/pin" },
   "permissions": {
     "http": { "enable": false },
     "redis": true,

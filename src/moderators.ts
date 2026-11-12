@@ -53,3 +53,8 @@ export async function identifyCaller(context: ModeratorsContext): Promise<Caller
               moderator: { username: entry.username, permissions: entry.moderatorInfo.modPermissions },
           };
 }
+
+/** Whether the moderator may change posts through the app: the Everything (`all`) or Posts (`posts`) permission. */
+export function canManagePosts(moderator: Moderator): boolean {
+    return moderator.permissions.some((permission: string): boolean => permission === "all" || permission === "posts");
+}
