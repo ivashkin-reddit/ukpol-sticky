@@ -60,6 +60,25 @@ describe("refreshThread when a thread config's pin setting changed", (): void =>
     });
 
     it(
+        "says only the label changed when the live post was in its new slot already",
+        TEST_OPTIONS,
+        async (): Promise<void> => {
+            expect.assertions(2);
+
+            const { fakes } = await refreshAfter(
+                { ...CONFIG, sticky: true },
+                { ...CONFIG, sticky: true, slot: 1 },
+                unlabelled("t3_live", "t3_a"),
+            );
+
+            expect(fakes.highlights.current()).toStrictEqual([LIVE, ...unlabelled("t3_a")]);
+            expect(vi.mocked(console.log)).toHaveBeenCalledWith(
+                "Placed live post t3_live of thread config weekly in slot 1 (it was there already; its label is now Megathread).",
+            );
+        },
+    );
+
+    it(
         "unpins the live post when its thread config is no longer pinned, and logs it",
         TEST_OPTIONS,
         async (): Promise<void> => {

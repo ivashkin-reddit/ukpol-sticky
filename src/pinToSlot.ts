@@ -90,22 +90,36 @@ function parseLabel(value: string | undefined): HighlightLabel | "invalid" | und
     return value !== undefined && isHighlightLabel(value) ? value : "invalid";
 }
 
-/** The toast for what "Pin to slot" did; a change is logged first. The form answers a confirmation itself. */
-function answer(outcome: Exclude<PinOutcome, Readonly<{ kind: "confirm" }>>): UiResponse {
+type AllowedPin = Readonly<{ kind: "allowed"; moderator: Moderator; post: PostRef }>;
+type PinAccess = AllowedPin | Readonly<{ kind: "refused"; response: UiResponse }>;
+
+/** The toast for what "Pin to slot" did, after its log line. The form answers a confirmation itself. */
+function answer(outcome: Exclude<PinOutcome, Readonly<{ kind: "confirm" }>>, access: AllowedPin): UiResponse {
+    const who = `u/${access.moderator.username}`;
     switch (outcome.kind) {
         case "changed":
             console.log(describePinLog(outcome.change));
             return { showToast: describeOutcome(outcome.change) };
         case "unchanged":
+            console.log(`${who} chose what post ${access.post.id} already had, so Pin to slot changed nothing.`);
             return { showToast: UNCHANGED_TOAST };
         case "busy":
+            console.log(`${who} could not pin post ${access.post.id}: a refresh of its thread holds the lock.`);
             return { showToast: BUSY_TOAST };
     }
 }
 
-type PinAccess =
-    | Readonly<{ kind: "allowed"; moderator: Moderator; post: PostRef }>
-    | Readonly<{ kind: "refused"; response: UiResponse }>;
+/** Shows the pin form again, logging why. */
+async function showAgain(
+    access: AllowedPin,
+    reason: Readonly<{ notice: string | undefined; why: string }>,
+    context: PinContext,
+): Promise<UiResponse> {
+    console.log(
+        `Showed the pin form for post ${access.post.id} to u/${access.moderator.username} again: ${reason.why}.`,
+    );
+    return await showForm(access.post, reason.notice, context);
+}
 
 /** The moderator allowed to pin, and the post read from Reddit as this subreddit's; otherwise the refusal. */
 async function authorisePost(postId: string | undefined, context: PinContext): Promise<PinAccess> {
@@ -118,6 +132,17 @@ async function authorisePost(postId: string | undefined, context: PinContext): P
     return post === undefined
         ? { kind: "refused", response: { showToast: notThisSubredditToast(context.subredditName) } }
         : { kind: "allowed", moderator: authorisation.moderator, post };
+}
+
+/** Shows the pin form again, asking the moderator to confirm the post Reddit would unpin. */
+async function askToConfirm(
+    access: AllowedPin,
+    pending: Readonly<{ wouldUnpin: PostRef; confirmed: string | undefined }>,
+    context: PinContext,
+): Promise<UiResponse> {
+    const confirmed = pending.confirmed === undefined ? "nothing was confirmed" : "another post was confirmed";
+    const why = `pinning it would unpin ${pending.wouldUnpin.id}, and ${confirmed}`;
+    return await showAgain(access, { notice: confirmNotice(pending.wouldUnpin), why }, context);
 }
 
 /** The slot and label chosen; undefined when either is one the form never offers. */
@@ -147,7 +172,11 @@ export async function onPinForm(event: PinFormEvent, context: PinContext): Promi
 
     const choices = readChoices(event);
     if (choices === undefined) {
-        return await showForm(access.post, undefined, context);
+        return await showAgain(
+            access,
+            { notice: undefined, why: "its slot or label is not one the form offers" },
+            context,
+        );
     }
 
     const request = {
@@ -158,6 +187,6 @@ export async function onPinForm(event: PinFormEvent, context: PinContext): Promi
     };
     const outcome = await pinToSlot(request, highlightsPorts(context));
     return outcome.kind === "confirm"
-        ? await showForm(access.post, confirmNotice(outcome.wouldUnpin), context)
-        : answer(outcome);
+        ? await askToConfirm(access, { wouldUnpin: outcome.wouldUnpin, confirmed: event.confirmUnpin }, context)
+        : answer(outcome, access);
 }

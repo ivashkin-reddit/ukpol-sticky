@@ -186,12 +186,16 @@ describe(onPinForm, (): void => {
         "says nothing changed, recording nothing, for a post already in place",
         TEST_OPTIONS,
         async (): Promise<void> => {
-            expect.assertions(2);
+            expect.assertions(3);
 
+            const logSpy = silenceConsole("log");
             const world = pinWorld(POSTER, [...unlabelled("t3_w"), { postId: "t3_ama", label: "event" }]);
 
             await expect(onPinForm(FORM, world.context)).resolves.toStrictEqual({ showToast: "Nothing to change." });
             expect(world.history.add).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "u/mod_user chose what post t3_ama already had, so Pin to slot changed nothing.",
+            );
         },
     );
 
@@ -205,12 +209,16 @@ describe(onPinForm, (): void => {
         "shows the form again, pinning nothing, for the choice %o, which the form never offers",
         TEST_OPTIONS,
         async (choice: Partial<PinFormEvent>): Promise<void> => {
-            expect.assertions(2);
+            expect.assertions(3);
 
+            const logSpy = silenceConsole("log");
             const world = pinWorld(POSTER);
 
             await expect(onPinForm({ ...FORM, ...choice }, world.context)).resolves.toStrictEqual(formFor({}));
             expect(world.highlights.pin).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                "Showed the pin form for post t3_ama to u/mod_user again: its slot or label is not one the form offers.",
+            );
         },
     );
 
@@ -225,31 +233,42 @@ describe(onPinForm, (): void => {
         });
     });
 
-    it(
-        "shows the form again with the post Reddit would unpin when all six are taken",
+    it.for<readonly [string | undefined, string]>([
+        [undefined, "nothing was confirmed"],
+        ["t3_e", "another post was confirmed"],
+    ])(
+        "shows the form again with the post Reddit would unpin when all six are taken, having confirmed %s",
         TEST_OPTIONS,
-        async (): Promise<void> => {
-            expect.assertions(2);
+        async ([confirmUnpin, confirmed]: readonly [string | undefined, string]): Promise<void> => {
+            expect.assertions(3);
 
+            const logSpy = silenceConsole("log");
             const six = unlabelled("t3_a", "t3_b", "t3_c", "t3_d", "t3_e", "t3_f");
             const world = pinWorld(POSTER, six);
-            const response = await onPinForm(FORM, world.context);
+            const response = await onPinForm({ ...FORM, confirmUnpin }, world.context);
 
             expect(response.showForm?.form.description).toBe(
                 'Pinning this post unpins "Title of t3_f": confirm below to go ahead. Slots 1 and 2 are old.reddit\'s two stickies.',
             );
             expect(world.highlights.pin).not.toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+                `Showed the pin form for post t3_ama to u/mod_user again: pinning it would unpin t3_f, and ${confirmed}.`,
+            );
         },
     );
 
     it("says the thread is being refreshed while its lock is held", TEST_OPTIONS, async (): Promise<void> => {
-        expect.assertions(1);
+        expect.assertions(2);
 
+        const logSpy = silenceConsole("log");
         const world = pinWorld(POSTER, unlabelled("t3_w"), true);
 
         await expect(onPinForm(FORM, world.context)).resolves.toStrictEqual({
             showToast: "That thread is being refreshed. Try again in a minute.",
         });
+        expect(logSpy).toHaveBeenCalledExactlyOnceWith(
+            "u/mod_user could not pin post t3_ama: a refresh of its thread holds the lock.",
+        );
     });
 
     it("refuses a post of another subreddit", TEST_OPTIONS, async (): Promise<void> => {

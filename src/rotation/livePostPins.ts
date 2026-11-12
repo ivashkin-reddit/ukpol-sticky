@@ -38,8 +38,15 @@ async function alertUnpinned(placing: LivePostPlacement, unpinnedId: string, por
     });
 }
 
-function describeFrom(fromSlot: number | undefined): string {
-    return fromSlot === undefined ? "it was not pinned" : `it was in slot ${String(fromSlot)}`;
+/** Where the live post was before: not pinned, in another slot, or in this slot already, so only its label changed. */
+function describeFrom(fromSlot: number | undefined, toSlot: number): string {
+    if (fromSlot === undefined) {
+        return "it was not pinned";
+    }
+
+    return fromSlot === toSlot
+        ? "it was there already; its label is now Megathread"
+        : `it was in slot ${String(fromSlot)}`;
 }
 
 /**
@@ -56,7 +63,7 @@ export async function placeLivePost(placing: LivePostPlacement, ports: PinPorts)
 
     const unpinnedNote = placement.unpinned === undefined ? "" : ` Reddit unpinned ${placement.unpinned}.`;
     console.log(
-        `Placed live post ${post.id} of thread config ${config.name} in slot ${String(placement.toSlot)} (${describeFrom(placement.fromSlot)}).${unpinnedNote}`,
+        `Placed live post ${post.id} of thread config ${config.name} in slot ${String(placement.toSlot)} (${describeFrom(placement.fromSlot, placement.toSlot)}).${unpinnedNote}`,
     );
     if (placement.unpinned !== undefined) {
         await alertUnpinned({ ...placing, slot: placement.toSlot }, placement.unpinned, ports);
