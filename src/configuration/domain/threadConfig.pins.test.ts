@@ -64,6 +64,16 @@ describe("checkThreadConfigs on pins", (): void => {
         });
     });
 
+    it.for<Partial<ThreadConfig>>([{ slot: 1 }, { slot: 1, sticky: null }, { slot: 1, sticky: true }])(
+        "accepts %o, a slot with sticky left unset or on",
+        TEST_OPTIONS,
+        (fields: Partial<ThreadConfig>): void => {
+            expect.assertions(1);
+
+            expect(checkThreadConfigs([{ ...MINIMAL_CONFIG, ...fields }]).kind).toBe("valid");
+        },
+    );
+
     it("rejects two enabled thread configs asking for one slot, naming both in page order", TEST_OPTIONS, (): void => {
         expect.assertions(1);
 

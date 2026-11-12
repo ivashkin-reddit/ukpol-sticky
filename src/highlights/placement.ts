@@ -63,7 +63,8 @@ export async function placePost(target: PlaceTarget, highlights: Highlights): Pr
     return {
         fromSlot: slotOf(beforeOrder, target.postId),
         toSlot: reordering.order.indexOf(target.postId) + 1,
-        unpinned: beforeOrder.find((id: string): boolean => id !== target.postId && !pinning.order.includes(id)),
+        // The post itself is always pinned by now, so the one missing is the one Reddit dropped.
+        unpinned: beforeOrder.find((id: string): boolean => !pinning.order.includes(id)),
         changed: pinning.pinned || reordering.reordered,
     };
 }
