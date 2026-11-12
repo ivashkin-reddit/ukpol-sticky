@@ -1,12 +1,14 @@
 # Sticky Manager
 
-Sticky Manager publishes, stickies and rotates recurring discussion threads for [r/ukpolitics](https://www.reddit.com/r/ukpolitics/). It runs on Reddit's [Devvit](https://developers.reddit.com/) platform as the app **ukpol-megabot**, and moderators configure it on a subreddit wiki page.
+Sticky Manager publishes, pins and rotates recurring discussion threads for [r/ukpolitics](https://www.reddit.com/r/ukpolitics/). It runs on Reddit's [Devvit](https://developers.reddit.com/) platform as the app **ukpol-megabot**, and moderators configure it on a subreddit wiki page.
 
 - **Scheduled threads:** a new post every day, or on one day each week, at a set UTC time.
 - **Comment caps:** a thread that fills up is replaced straight away, whatever its schedule.
 - **Clean handovers:** the outgoing post can get a pinned end note pointing readers on, and be locked.
 - **Live edits:** a change to a thread's body is applied to its current post in place.
 - **Moderator alerts:** configuration mistakes and failures are reported by modmail, once per problem.
+- **Slots:** each thread can keep a highlight slot through every rotation, so the weekly megathread stays in old.reddit's first sticky.
+- **Pin to slot:** moderators can pin any post into a chosen slot from its mod menu, and see who pinned what in the status.
 - **Status:** moderators can see every thread's state, and what needs attention, from the mod tools menu.
 
 ## Getting started
@@ -24,13 +26,14 @@ Each YAML document on the config page is a _thread config_: it describes one rec
 - **Rotation:** a live post is replaced when its scheduled time arrives or it reaches `maxComments`, whichever comes first. A thread without `frequency` and `postTime` is replaced only at its comment cap.
 - **The six-hour rule:** a daily post created less than six hours before its next scheduled time stays up until the scheduled time after that. This happens when a comment-cap rotation lands shortly before a scheduled one.
 - **Handover:** in order:
-    1. the old post is unstickied;
-    2. the new post is published, distinguished and, if `sticky` is set, stickied;
+    1. the old post is unpinned;
+    2. the new post is published, distinguished and, if `slot` or `sticky` is set, pinned with the Megathread label: in its `slot`, or else in the slot the old post held;
     3. the old post gets its `endNote`, then is locked if `lockOnRefresh` is set.
-- **Edits:** changing `body` edits the live post in place. Reddit titles cannot be edited, so a changed `title` takes effect at the next rotation.
+- **Edits:** changing `body` edits the live post in place, and changing `slot` or `sticky` moves or unpins it at once. Reddit titles cannot be edited, so a changed `title` takes effect at the next rotation.
+- **Slots:** Reddit keeps up to six pinned posts, its community highlights; old.reddit shows the first two as its stickies. A thread's live post returns to its `slot` at each rotation, so moderators can move it in between, by hand or with Pin to slot, without the app moving it back early.
 - **Disabling or removing a thread:** set `enabled: false` or delete its document. The app stops managing the thread and leaves its last post as it is.
 - **Deleted or removed posts:** if a live post is deleted or removed, the app publishes a new one for that thread within the hour. To get one straight away, save the config page (any change will do).
-- **Recovery:** each thread is refreshed on its own, so a thread that fails to rotate does not hold up the others; it is retried within 15 minutes. The retry finishes a rotation the failure interrupted: it stickies and distinguishes the new post, and gives the old one its end note and lock, without repeating any step already done. Once an hour, at minute 43, the app also checks that each thread's next refresh is scheduled and on time, replacing one that is stuck. It applies any save to the config page it missed, and refreshes a thread straight away if a saved change has not reached it yet or it has no live post. Each refresh in turn makes sure that hourly check is still scheduled.
+- **Recovery:** each thread is refreshed on its own, so a thread that fails to rotate does not hold up the others; it is retried within 15 minutes. The retry finishes a rotation the failure interrupted: it pins and distinguishes the new post, and gives the old one its end note and lock, without repeating any step already done. Once an hour, at minute 43, the app also checks that each thread's next refresh is scheduled and on time, replacing one that is stuck. It applies any save to the config page it missed, and refreshes a thread straight away if a saved change has not reached it yet or it has no live post. Each refresh in turn makes sure that hourly check is still scheduled.
 
 The app posts and comments as its own account, u/ukpol-megabot.
 
@@ -189,9 +192,10 @@ It shows:
 
 - **Summary:** how many managed threads there are, and how many need attention.
 - **Config page:** whether the config page's latest revision is in force. If it was rejected, the status repeats the problem from the modmail; the thread configs from the last accepted revision stay in force until the page is fixed.
+- **Latest changes:** the five most recent changes moderators made with Pin to slot: who, when, and what.
 - **Disabled:** the thread configs with `enabled: false`.
 - One section per thread, those needing attention first:
-    - **Live post:** its title and ID, whether it is stickied, and when it was posted.
+    - **Live post:** its title and ID, the slot it is pinned in (and its thread config's slot when that differs), and when it was posted.
     - **Comments:** its comment count against its `maxComments`.
     - **Next refresh:** when the app next looks at the thread, in UTC, and why.
     - **Last refresh:** whether the app's last look at the thread succeeded, and the error if not. **Last success** follows a failure.
@@ -208,26 +212,41 @@ To open a thread's live post, choose it under **Open a live post** and press **O
 | Its live post could not be read from Reddit                                        | Check the post on Reddit. If it was removed, the app publishes a new one within the hour.                                  |
 | Could not read its status                                                          | Try again shortly. If it persists, ask the app's developer.                                                                |
 
+## Pin to slot
+
+To pin a post into a chosen slot, open the post's mod menu on new Reddit or in the Reddit apps and choose **Pin to slot**. Moderators with the Everything or Posts permission can use it; old.reddit shows no app menus, but its own sticky button still works.
+
+The form shows the highlights now, then offers:
+
+- **Slot:** 1 to 6, up to one more than the other pinned posts, or **Not pinned** to unpin it. Slots 1 and 2 are old.reddit's two stickies.
+- **Label:** Megathread, Announcement, Event or None, shown under the post in new Reddit's highlights.
+- **Unpin "…":** when all six slots are taken, pinning another post makes Reddit unpin the sixth. Choose it to confirm; the form asks again if the highlights have changed in the meantime.
+
+A thread's live post can be moved too; it returns to its thread config's `slot` at its next rotation. Each change is recorded with who made it and when, and the status shows the latest.
+
 ## Moderator alerts
 
 The app reports problems to the subreddit's moderators by modmail. A rejected save is reported once; editing other wiki pages does not repeat it.
 
-| Subject                                               | Meaning                                                                      | What to do                                                                                               |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Invalid YAML in wiki page stickymgr/config            | The page is not valid YAML.                                                  | Fix the YAML and save the page again.                                                                    |
-| Invalid config in wiki page stickymgr/config          | A thread config breaks one of the [rules](#rules). The modmail says which.   | Fix it and save the page again.                                                                          |
-| Duplicate config names in wiki page stickymgr/config  | Two thread configs share a `name`.                                           | Rename one and save the page again.                                                                      |
-| Incomplete schedule in config _name_                  | Only one of `frequency` and `postTime` is set.                               | Set both, or neither.                                                                                    |
-| Invalid date format in config _name_                  | The title's date token is not a valid date-fns format.                       | Correct the format and save the page again.                                                              |
-| Sticky Manager cannot read its stored config          | The app's saved copy of the config is unreadable, so it has stopped.         | Save the config page (any change will do).                                                               |
-| Sticky Manager could not refresh thread config _name_ | A refresh of that thread failed, for example because Reddit was unavailable. | Nothing, usually: the app retries within 15 minutes. If the failure persists, check that thread.         |
-| Sticky Manager could not schedule its refreshes       | The app could not check or schedule its refreshes.                           | Nothing, usually: the app tries again at the next hourly check. If it persists, ask the app's developer. |
+| Subject                                                    | Meaning                                                                                     | What to do                                                                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Invalid YAML in wiki page stickymgr/config                 | The page is not valid YAML.                                                                 | Fix the YAML and save the page again.                                                                    |
+| Invalid config in wiki page stickymgr/config               | A thread config breaks one of the [rules](#rules). The modmail says which.                  | Fix it and save the page again.                                                                          |
+| Duplicate config names in wiki page stickymgr/config       | Two thread configs share a `name`.                                                          | Rename one and save the page again.                                                                      |
+| Incomplete schedule in config _name_                       | Only one of `frequency` and `postTime` is set.                                              | Set both, or neither.                                                                                    |
+| Invalid date format in config _name_                       | The title's date token is not a valid date-fns format.                                      | Correct the format and save the page again.                                                              |
+| Two configs share slot _n_                                 | Two enabled thread configs ask for the same `slot`.                                         | Give each its own slot and save the page again.                                                          |
+| Too many pinned configs in wiki page stickymgr/config      | More than six enabled thread configs are pinned, but Reddit holds six.                      | Unpin some (remove `slot` and `sticky`) and save the page again.                                         |
+| Sticky Manager unpinned a post to pin thread config _name_ | Pinning the thread's live post needed a seventh highlight, so Reddit unpinned the last one. | Pin it again with Pin to slot if it should stay, or unpin something else first.                          |
+| Sticky Manager cannot read its stored config               | The app's saved copy of the config is unreadable, so it has stopped.                        | Save the config page (any change will do).                                                               |
+| Sticky Manager could not refresh thread config _name_      | A refresh of that thread failed, for example because Reddit was unavailable.                | Nothing, usually: the app retries within 15 minutes. If the failure persists, check that thread.         |
+| Sticky Manager could not schedule its refreshes            | The app could not check or schedule its refreshes.                                          | Nothing, usually: the app tries again at the next hourly check. If it persists, ask the app's developer. |
 
 Until a rejected page is fixed, the previously accepted configuration stays in force.
 
-A rotation interrupted part-way leaves its thread part-way through until the retry finishes it, within 15 minutes if Reddit is back by then. Meanwhile the old post may be unstickied with no replacement yet, or the new post published but not yet stickied, and the old post not yet locked. The failure modmail about a thread is sent once; no further one follows until that thread refreshes successfully.
+A rotation interrupted part-way leaves its thread part-way through until the retry finishes it, within 15 minutes if Reddit is back by then. Meanwhile the old post may be unpinned with no replacement yet, or the new post published but not yet pinned, and the old post not yet locked. The failure modmail about a thread is sent once; no further one follows until that thread refreshes successfully.
 
-If a rotation interrupted by the failure published its replacement but could not record it, the retry publishes another. Delete the extra, unstickied post. This is rare: it needs a failure in the moment between Reddit creating the post and the app recording it.
+If a rotation interrupted by the failure published its replacement but could not record it, the retry publishes another. Delete the extra, unpinned post. This is rare: it needs a failure in the moment between Reddit creating the post and the app recording it.
 
 ## Privacy and terms
 

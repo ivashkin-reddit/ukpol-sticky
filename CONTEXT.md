@@ -7,7 +7,7 @@ A subreddit's moderators define recurring discussion threads; the app keeps each
 ### Defining threads
 
 **Thread config**:
-One moderator-written definition of a managed thread: its title, body, schedule, comment cap and retirement options. Moderators write them as YAML documents on the config page.
+One moderator-written definition of a managed thread: its title, body, schedule, comment cap, slot and retirement options. Moderators write them as YAML documents on the config page.
 _Avoid_: config (alone), sticky config, managed post
 
 **Config page**:
@@ -25,6 +25,10 @@ _Avoid_: max comments, limit
 **Date token**:
 The `{{date …}}` placeholder in a thread config's title, replaced with the post's creation date when the post is published.
 _Avoid_: date placeholder, template variable
+
+**Slot**:
+A place in the highlights, 1 to 6. A thread config can set the slot its live posts are pinned in; slots 1 and 2 are the two stickies old.reddit shows.
+_Avoid_: sticky slot, position
 
 **Config problem**:
 A reason a config page cannot be accepted, reported back to the moderator who saved it. The previously accepted thread configs stay in force.
@@ -45,11 +49,11 @@ Replacing a thread config's live post with a new one: the old post is retired, t
 _Avoid_: refresh (that is a thread config's whole pass), recreation
 
 **Handover**:
-The rest of a rotation once the new live post is published: distinguishing and stickying it, then retiring the old post. A handover that a failure interrupts is finished by the thread config's next refresh.
+The rest of a rotation once the new live post is published: distinguishing it and pinning it in its slot, then retiring the old post. A handover that a failure interrupts is finished by the thread config's next refresh.
 _Avoid_: recovery, completion
 
 **Retirement**:
-What happens to the outgoing live post on rotation: it is unstickied, given its end note and locked, as its thread config asks.
+What happens to the outgoing live post on rotation: it is unpinned, given its end note and locked, as its thread config asks.
 _Avoid_: archiving, closing
 
 **End note**:
@@ -73,12 +77,26 @@ Whether a thread config's refreshes are running: how its last refresh ended, whe
 _Avoid_: health, heartbeat
 
 **Status**:
-The moderators' read-only view of Sticky Manager: each thread config's live post and comments against its comment cap, when and why its next refresh runs, how its last refresh ended, any unfinished handover, and the config page's state.
+The moderators' read-only view of Sticky Manager: each thread config's live post, where it is pinned and comments against its comment cap, when and why its next refresh runs, how its last refresh ended, any unfinished handover, the config page's state, and the latest changes.
 _Avoid_: dashboard, health
 
 **Needs attention**:
 A thread config whose last refresh failed, whose live post or status cannot be read, or for which the refresh check would request a refresh. The status lists these first.
 _Avoid_: unhealthy, broken
+
+### Pinning posts
+
+**Highlights**:
+The subreddit's ordered list of up to six pinned posts (Reddit's community highlights). old.reddit shows only the first two, as its stickies.
+_Avoid_: stickies, sticky posts
+
+**Pin**:
+To put a post in the highlights, in a slot; to **unpin** takes it out. Moderators pin any post with "Pin to slot"; the app pins each pinned thread config's live posts.
+_Avoid_: sticky (as a verb; the `sticky` field keeps its name), highlight (as a verb)
+
+**Change history**:
+The moderator changes made through the app: who, when and what. It keeps the last 50, none older than 90 days; the status shows the latest.
+_Avoid_: audit log, mod log (that is Reddit's)
 
 ### Alerting moderators
 
