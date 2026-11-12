@@ -30,6 +30,8 @@ export {
     scheduleEveryThreadRefresh,
     startRefreshCheck,
 } from "./refreshSchedule.js";
+export { findManagingThread, holdLivePostLock } from "./managedPosts.js";
+export type { ManagingThread } from "./managedPosts.js";
 export { forgetDeletedPost, refreshThreadConfig, rotateIfCapReached } from "./rotation.js";
 export type { NewComment } from "./rotation.js";
 export { findLivePostLink, getThreadStatuses, needsAttention } from "./threadStatus.js";
