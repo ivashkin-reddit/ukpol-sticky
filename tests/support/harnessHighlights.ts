@@ -43,7 +43,8 @@ export async function readHarnessHighlights(): Promise<readonly HarnessHighlight
     return Array.isArray(values) ? values.map(toHighlight) : [];
 }
 
-async function writeHarnessHighlights(highlights: readonly HarnessHighlight[]): Promise<void> {
+/** Sets the highlights the harness holds, in display order. */
+export async function writeHarnessHighlights(highlights: readonly HarnessHighlight[]): Promise<void> {
     await redis.set(HIGHLIGHTS_KEY, JSON.stringify(highlights));
 }
 
