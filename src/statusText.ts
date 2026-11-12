@@ -1,6 +1,7 @@
 import { formatDistanceStrict } from "date-fns";
 import { describeProblemForStatus } from "./configuration/index.js";
-import type { ConfigPageStatus } from "./configuration/index.js";
+import type { ConfigPageStatus, Pin } from "./configuration/index.js";
+import { OLD_REDDIT_SLOTS } from "./highlights/index.js";
 import { needsAttention } from "./rotation/index.js";
 import type {
     AttentionReason,
@@ -79,14 +80,31 @@ export function describeConfigPage(status: ConfigPageStatus): string {
     }
 }
 
-export function describeLivePost(livePost: LivePostStatus, now: Date): string {
+/**
+ * Where a live post sits in the highlights, and where its thread config puts it when that differs: moderators may move
+ * it by hand, and it returns at its next rotation.
+ */
+function describePin(slot: number | undefined, pin: Pin): string {
+    const where =
+        slot === undefined
+            ? "not pinned"
+            : `pinned in slot ${String(slot)}${slot <= OLD_REDDIT_SLOTS ? " (old.reddit sticky)" : ""}`;
+    if (pin.kind === "slot" && slot !== pin.slot) {
+        const returns = slot === undefined ? "it is pinned" : "it returns";
+        return `${where}; set to slot ${String(pin.slot)}, ${returns} at its next rotation`;
+    }
+
+    return pin.kind === "keepSlot" && slot === undefined ? `${where}; it is pinned again at its next rotation` : where;
+}
+
+export function describeLivePost(livePost: LivePostStatus, pin: Pin, now: Date): string {
     switch (livePost.kind) {
         case "none":
             return "None: a refresh publishes one.";
         case "unreadable":
             return `Could not read ${livePost.postId} from Reddit.`;
         case "readable":
-            return `${livePost.title} (${livePost.id}), posted ${formatTime(livePost.createdAt, now)}`;
+            return `${livePost.title} (${livePost.id}), ${describePin(livePost.slot, pin)}, posted ${formatTime(livePost.createdAt, now)}`;
     }
 }
 

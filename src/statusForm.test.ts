@@ -18,10 +18,12 @@ const HEALTHY: ReadableThreadStatus = {
     kind: "readable",
     configName: "daily-thread",
     hasSchedule: true,
+    pin: { kind: "slot", slot: 1 },
     livePost: {
         kind: "readable",
         id: "t3_daily",
         title: "Daily thread",
+        slot: 1,
         createdAt: new Date("2026-04-21T05:00:00Z"),
         comments: 12,
         commentCap: 100,
@@ -40,6 +42,7 @@ const FAILING: ReadableThreadStatus = {
     kind: "readable",
     configName: "loose-thread",
     hasSchedule: false,
+    pin: { kind: "none" },
     livePost: { kind: "unreadable", postId: "t3_loose" },
     refreshStatus: {
         lastRefresh: { at: new Date("2026-04-21T09:50:00Z"), outcome: "failed", failure: "Reddit is down" },
@@ -136,7 +139,7 @@ describe(layOutStatus, (): void => {
                             shown(
                                 "thread-2-live-post",
                                 "Live post",
-                                "Daily thread (t3_daily), posted 2026-04-21 05:00 UTC (5 hours ago)",
+                                "Daily thread (t3_daily), pinned in slot 1 (old.reddit sticky), posted 2026-04-21 05:00 UTC (5 hours ago)",
                             ),
                             shown("thread-2-comments", "Comments", "12 of 100"),
                             shown(

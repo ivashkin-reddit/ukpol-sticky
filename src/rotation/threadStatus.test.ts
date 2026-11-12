@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { freezeTime } from "../../tests/support/fakeClock.js";
+import { unlabelled } from "../../tests/support/fakeHighlights.js";
 import { findingPostsById } from "../../tests/support/fakePosts.js";
 import { createFakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
 import type { FakeRotationPorts } from "../../tests/support/fakeRotationPorts.js";
@@ -15,6 +16,7 @@ import {
 import { silenceConsole } from "../../tests/support/silenceConsole.js";
 import { writesMade } from "../../tests/support/writes.js";
 import type { ThreadConfig } from "../configuration/index.js";
+import type { Highlight } from "../highlights/index.js";
 import type { RefreshStatus } from "./ports.js";
 import { findLivePostLink, getThreadStatuses } from "./threadStatus.js";
 
@@ -28,14 +30,20 @@ const NO_REFRESH_STATUS: RefreshStatus = {
     nextRefreshReason: undefined,
 };
 
-/** Fakes over `configs`, whose live posts are `livePostIds`; the daily and sticky posts can be read. */
+/**
+ * Fakes over `configs`, whose live posts are `livePostIds` and whose highlights are `highlights`; the daily and sticky
+ * posts can be read.
+ */
 function statusWorld(
     configs: readonly ThreadConfig[],
     livePostIds: Readonly<Record<string, string>>,
+    highlights: readonly Highlight[] = [],
 ): FakeRotationPorts {
-    const fakes = createFakeRotationPorts(configs, {
-        all: async (): Promise<Readonly<Record<string, string>>> => await Promise.resolve(livePostIds),
-    });
+    const fakes = createFakeRotationPorts(
+        configs,
+        { all: async (): Promise<Readonly<Record<string, string>>> => await Promise.resolve(livePostIds) },
+        highlights,
+    );
     fakes.posts.get.mockImplementation(findingPostsById([dailyPost("t3_daily").post, fullPost("t3_sticky", 3).post]));
     fakes.livePosts.getCommentCap.mockResolvedValue(COMMENT_CAP);
     return fakes;
@@ -49,7 +57,7 @@ describe(getThreadStatuses, (): void => {
             expect.assertions(2);
 
             freezeTime("2026-04-21T10:00:00Z");
-            const fakes = statusWorld([DAILY_CONFIG], { "daily-thread": "t3_daily" });
+            const fakes = statusWorld([DAILY_CONFIG], { "daily-thread": "t3_daily" }, unlabelled("t3_a", "t3_daily"));
             const refreshStatus: RefreshStatus = {
                 lastRefresh: { at: new Date("2026-04-21T05:00:00Z"), outcome: "succeeded" },
                 lastSuccessAt: new Date("2026-04-21T05:00:00Z"),
@@ -65,10 +73,12 @@ describe(getThreadStatuses, (): void => {
                         kind: "readable",
                         configName: "daily-thread",
                         hasSchedule: true,
+                        pin: { kind: "none" },
                         livePost: {
                             kind: "readable",
                             id: "t3_daily",
                             title: "Post t3_daily",
+                            slot: 2,
                             createdAt: new Date("2026-04-21T05:00:00Z"),
                             comments: 0,
                             commentCap: COMMENT_CAP,

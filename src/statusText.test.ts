@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ConfigPageStatus } from "./configuration/index.js";
-import type { AttentionReason, ReadableThreadStatus, ThreadStatuses } from "./rotation/index.js";
+import type { ConfigPageStatus, Pin } from "./configuration/index.js";
+import type { AttentionReason, LivePostStatus, ReadableThreadStatus, ThreadStatuses } from "./rotation/index.js";
 import {
     cut,
     describeAttention,
@@ -19,14 +19,18 @@ const TEST_OPTIONS = { timeout: 1000 };
 
 const NOW = new Date("2026-04-21T10:00:00Z");
 
+const SLOT_1: Pin = { kind: "slot", slot: 1 };
+
 const HEALTHY: ReadableThreadStatus = {
     kind: "readable",
     configName: "daily-thread",
     hasSchedule: true,
+    pin: { kind: "slot", slot: 1 },
     livePost: {
         kind: "readable",
         id: "t3_daily",
         title: "Daily thread",
+        slot: 1,
         createdAt: new Date("2026-04-21T05:00:00Z"),
         comments: 12,
         commentCap: 100,
@@ -155,18 +159,49 @@ describe(describeLastRefresh, (): void => {
     });
 });
 
+const READABLE_POST: Extract<LivePostStatus, Readonly<{ kind: "readable" }>> = {
+    kind: "readable",
+    id: "t3_daily",
+    title: "Daily thread",
+    slot: 1,
+    createdAt: new Date("2026-04-21T05:00:00Z"),
+    comments: 12,
+    commentCap: 100,
+};
+
 describe(describeLivePost, (): void => {
     it("words a live post, none, and one Reddit could not give", TEST_OPTIONS, (): void => {
         expect.assertions(3);
 
-        expect(describeLivePost(HEALTHY.livePost, NOW)).toBe(
-            "Daily thread (t3_daily), posted 2026-04-21 05:00 UTC (5 hours ago)",
+        expect(describeLivePost(HEALTHY.livePost, SLOT_1, NOW)).toBe(
+            "Daily thread (t3_daily), pinned in slot 1 (old.reddit sticky), posted 2026-04-21 05:00 UTC (5 hours ago)",
         );
-        expect(describeLivePost({ kind: "none" }, NOW)).toBe("None: a refresh publishes one.");
-        expect(describeLivePost({ kind: "unreadable", postId: "t3_gone" }, NOW)).toBe(
+        expect(describeLivePost({ kind: "none" }, SLOT_1, NOW)).toBe("None: a refresh publishes one.");
+        expect(describeLivePost({ kind: "unreadable", postId: "t3_gone" }, SLOT_1, NOW)).toBe(
             "Could not read t3_gone from Reddit.",
         );
     });
+
+    it.for<readonly [number | undefined, Pin, string]>([
+        [2, { kind: "slot", slot: 2 }, "pinned in slot 2 (old.reddit sticky)"],
+        [3, { kind: "slot", slot: 3 }, "pinned in slot 3"],
+        [3, { kind: "keepSlot" }, "pinned in slot 3"],
+        [3, { kind: "none" }, "pinned in slot 3"],
+        [3, SLOT_1, "pinned in slot 3; set to slot 1, it returns at its next rotation"],
+        [undefined, SLOT_1, "not pinned; set to slot 1, it is pinned at its next rotation"],
+        [undefined, { kind: "keepSlot" }, "not pinned; it is pinned again at its next rotation"],
+        [undefined, { kind: "none" }, "not pinned"],
+    ])(
+        "words a live post in slot %s with the pin %o",
+        TEST_OPTIONS,
+        ([slot, pin, where]: readonly [number | undefined, Pin, string]): void => {
+            expect.assertions(1);
+
+            expect(describeLivePost({ ...READABLE_POST, slot }, pin, NOW)).toBe(
+                `Daily thread (t3_daily), ${where}, posted 2026-04-21 05:00 UTC (5 hours ago)`,
+            );
+        },
+    );
 });
 
 describe(describeComments, (): void => {
@@ -177,6 +212,7 @@ describe(describeComments, (): void => {
             kind: "readable",
             id: "t3_daily",
             title: "Daily thread",
+            slot: undefined,
             createdAt: new Date("2026-04-21T05:00:00Z"),
             comments: 412,
             commentCap: 1000,

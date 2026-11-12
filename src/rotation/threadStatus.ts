@@ -1,5 +1,7 @@
-import { getSchedule } from "../configuration/index.js";
-import type { ThreadConfig } from "../configuration/index.js";
+import { getPin, getSchedule } from "../configuration/index.js";
+import type { Pin, ThreadConfig } from "../configuration/index.js";
+import { slotOf } from "../highlights/index.js";
+import type { Highlight } from "../highlights/index.js";
 import { findAttentionReasons, putFirst } from "./domain/statusRules.js";
 import type { AttentionReason } from "./domain/statusRules.js";
 import type { Handover, PendingRefresh, RefreshStatus, RotationPorts } from "./ports.js";
@@ -7,7 +9,7 @@ import { inRefreshOrder } from "./threadConfigOrder.js";
 
 export type StatusPorts = Pick<
     RotationPorts,
-    "appliedThreadConfigs" | "livePosts" | "posts" | "refreshJobs" | "refreshStatus"
+    "appliedThreadConfigs" | "highlights" | "livePosts" | "posts" | "refreshJobs" | "refreshStatus"
 >;
 
 /** A thread config's live post as the status shows it. */
@@ -16,6 +18,8 @@ export type LivePostStatus =
           kind: "readable";
           id: string;
           title: string;
+          /** Its slot in the highlights; undefined when it is not pinned. */
+          slot: number | undefined;
           createdAt: Date;
           comments: number;
           /** The comment cap stored for the post, the one rotation enforces; undefined when none is stored. */
@@ -29,6 +33,8 @@ export interface ReadableThreadStatus {
     readonly kind: "readable";
     readonly configName: string;
     readonly hasSchedule: boolean;
+    /** Where its thread config pins its live posts. */
+    readonly pin: Pin;
     readonly livePost: LivePostStatus;
     readonly refreshStatus: RefreshStatus;
     /** Its unfinished handover, if one is unfinished. */
@@ -60,6 +66,8 @@ interface StatusSnapshot {
     readonly handovers: Readonly<Record<string, Handover>>;
     readonly refreshStatuses: Readonly<Record<string, RefreshStatus>>;
     readonly hourlyCheckScheduled: boolean;
+    /** The pinned posts' IDs, in display order. */
+    readonly highlightOrder: readonly string[];
 }
 
 const NO_REFRESH_STATUS: RefreshStatus = {
@@ -80,22 +88,25 @@ function ownValue<Value>(record: Readonly<Record<string, Value>>, key: string): 
 }
 
 async function takeSnapshot(configNames: readonly string[], ports: StatusPorts): Promise<StatusSnapshot> {
-    const [pending, livePostIds, handovers, refreshStatuses, hourlyCheckScheduled] = await Promise.all([
+    const [pending, livePostIds, handovers, refreshStatuses, hourlyCheckScheduled, highlights] = await Promise.all([
         ports.refreshJobs.pending(),
         ports.livePosts.all(),
         ports.livePosts.handovers(),
         ports.refreshStatus.read(configNames),
         ports.refreshJobs.hasHourlyCheck(),
+        ports.highlights.list(),
     ]);
-    return { now: new Date(), pending, livePostIds, handovers, refreshStatuses, hourlyCheckScheduled };
+    const highlightOrder = highlights.map((entry: Highlight): string => entry.postId);
+    return { now: new Date(), pending, livePostIds, handovers, refreshStatuses, hourlyCheckScheduled, highlightOrder };
 }
 
 /** The thread config's live post as Reddit shows it; one Reddit cannot give is shown as such, and logged. */
 async function readLivePost(
     configName: string,
     postId: string | undefined,
-    ports: StatusPorts,
+    context: Readonly<{ ports: StatusPorts; highlightOrder: readonly string[] }>,
 ): Promise<LivePostStatus> {
+    const { ports } = context;
     if (postId === undefined) {
         return { kind: "none" };
     }
@@ -107,6 +118,7 @@ async function readLivePost(
             kind: "readable",
             id: post.id,
             title: post.title,
+            slot: slotOf(context.highlightOrder, post.id),
             createdAt: post.createdAt,
             comments: post.numberOfComments,
             commentCap,
@@ -119,7 +131,7 @@ async function readLivePost(
 
 async function readThread(config: ThreadConfig, snapshot: StatusSnapshot, ports: StatusPorts): Promise<ThreadStatus> {
     const postId = ownValue(snapshot.livePostIds, config.name);
-    const livePost = await readLivePost(config.name, postId, ports);
+    const livePost = await readLivePost(config.name, postId, { ports, highlightOrder: snapshot.highlightOrder });
     const refreshStatus = ownValue(snapshot.refreshStatuses, config.name) ?? NO_REFRESH_STATUS;
     const handover = ownValue(snapshot.handovers, config.name);
     const hasSchedule = getSchedule(config) !== undefined;
@@ -137,7 +149,16 @@ async function readThread(config: ThreadConfig, snapshot: StatusSnapshot, ports:
         },
         snapshot.now,
     );
-    return { kind: "readable", configName: config.name, hasSchedule, livePost, refreshStatus, handover, attention };
+    return {
+        kind: "readable",
+        configName: config.name,
+        hasSchedule,
+        pin: getPin(config),
+        livePost,
+        refreshStatus,
+        handover,
+        attention,
+    };
 }
 
 /** Reads one thread config's status; a failure is logged and shown, so it cannot hide the others. */

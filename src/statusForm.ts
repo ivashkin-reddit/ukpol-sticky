@@ -46,7 +46,7 @@ function shownParagraph(name: string, label: string, text: string): FormField {
 function readableFields(status: ReadableThreadStatus, prefix: string, now: Date): FormField[] {
     const { livePost, refreshStatus, handover, attention } = status;
     return [
-        shown(`${prefix}-live-post`, "Live post", describeLivePost(livePost, now)),
+        shown(`${prefix}-live-post`, "Live post", describeLivePost(livePost, status.pin, now)),
         ...(livePost.kind === "none" ? [] : [shown(`${prefix}-comments`, "Comments", describeComments(livePost))]),
         shown(`${prefix}-next-refresh`, "Next refresh", describeNextRefresh(status, now)),
         shownParagraph(`${prefix}-last-refresh`, "Last refresh", describeLastRefresh(refreshStatus.lastRefresh, now)),
